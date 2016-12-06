@@ -60,7 +60,7 @@ def command_line_process():
 	)
 	parser.add_argument('--reference','-r',
 		metavar='reference',
-		help='"GRCh37.75" or "GRCh38.84"'
+		help='"GRCh37.75" or "GRCh38.86"'
 	)
 	parser.add_argument('--max-loop','-L',
 		type=int,
@@ -754,9 +754,9 @@ def check_project_preq():
 	else:
 		log("Creating a new project folder...")
 
-		if ((args.reference != None) and (args.reference != "GRCh37.75") and (args.reference != "GRCh38.84")):
+		if ((args.reference != None) and (args.reference != "GRCh37.75") and (args.reference != "GRCh38.86")):
 			logFAIL()
-			logln("Invalid reference specified. Please use \"GRCh37.75\" or \"GRCh38.84\"")
+			logln("Invalid reference specified. Please use \"GRCh37.75\" or \"GRCh38.86\"")
 			exit(1)
 
 		# set up main project parameter

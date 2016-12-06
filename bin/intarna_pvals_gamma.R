@@ -1,3 +1,5 @@
+library('MASS')
+
 top <- 2 #Top X percent of calls
 
 args <- commandArgs(trailingOnly = TRUE)
