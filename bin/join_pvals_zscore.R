@@ -98,4 +98,4 @@ data.table <- as.table(final.matrix)
 
 colnames(data.table) <- c("Transcript_ID","Gene_ID","Gene_Symbol","Target_Start","Target_End","Transcript_ID","Gene_ID","Gene_Symbol","lncRNA_Start","lncRNA_End","Accessibility_E","Hybrid_E","Ratio","Free_Eneregy","LT_P","LT_FDR","LT_Pcor","LT_Pcor_P","LT_Dir_P","LT_Dir","PT_Start","PT_End","Protein_Gene_ID","Protein_Gene_Symbol","PT_Score","PT_P","PT_Pcor","PT_Pcor_P","PT_Dir_P","PT_Dir","Mechanism","Joint_P")
 
-write.table(file=paste(args[1],".pvalues.csv", sep = ""), data.table[order(data.table[,"Joint_P"]),], sep = ",", row.names=FALSE, col.names=TRUE, quote=FALSE)
+write.table(file=paste(args[1],".pvalues.csv", sep = ""), data.table[order(decreasing = TRUE, data.table[,"Joint_P"]),], sep = ",", row.names=FALSE, col.names=TRUE, quote=FALSE)
