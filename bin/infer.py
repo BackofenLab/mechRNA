@@ -33,8 +33,9 @@ def main(argv):
 		elif opt in ("-m", "--models"):
 			modelsfile = arg
 
-	correlationfile = "../data/net.edges.sig.genes"
-	proteinfile = "../data/peaks/graphprot.peaks.{0}.sig".format(ref) 
+	#correlationfile = "/home/agawrons/data/net.edges.sig.genes"
+	correlationfile = "./data/net.edges.sig.genes"
+	proteinfile = "./data/peaks/graphprot.peaks.{0}.sig".format(ref) 
 	#correlationfile = "../data/test.net"
 	#proteinfile = "../data/test.peaks.pvalues.genes" 
 
@@ -51,13 +52,13 @@ def main(argv):
 			models.append(model)
 			correl_proteins_data[model] = dict()
 			graphprot_data[model] = dict()
-
+	
 	with open(inputfile, 'r') as lncRNA_in:
 		line = lncRNA_in.readline()
 		tokens = line.split();
 		lncRNA = tokens[3].split(";")
 		lncRNA[0] = lncRNA[0][1:] 
-	
+		
 	with open(correlationfile, 'r') as correl_in:
 		for line in correl_in:
 			tokens = line.split()
@@ -72,7 +73,7 @@ def main(argv):
 					correl_proteins_data[model][tokens[1]] = tokens[2:6]
 				if(tokens[1] == protein_id):
 					correl_proteins_data[model][tokens[0]] = tokens[2:6]
-
+	
 	with open(proteinfile, 'r') as graphprot_in:
 		for line in graphprot_in:
 			tokens = line.split()
@@ -131,8 +132,7 @@ def main(argv):
 					#	else:
 					#		annotated_interaction.extend(["NA","NA","NA","0","1","0","1","1","NA"])
 					#else:
-						#annotated_interaction.extend(["NA","NA","NA","0","1","0","1","1","NA"]) 
-					
+						#annotated_interaction.extend(["NA","NA","NA","0","1","0","1","1","NA"]) 					
 
 		# print intarna_data[0]
 		# print intarna_data[0][6]
@@ -148,6 +148,7 @@ def main(argv):
 	#print intarna_data[0]
 
 	for mech in intarna_data:
+
 		protein_target = False
 		protein_lncRNA = False
 		overlap = False
@@ -155,7 +156,7 @@ def main(argv):
 		protein_symbol = ""
 		
 		#Determine features of interaction
-		if((mech[20] != "NA") and (float(mech[27]) != 1)):
+		if((mech[20] != "NA")):# and (float(mech[27]) != 1)):
 			protein_target = True
 			protein = mech[22]
 			protein_symbol = mech[23]
@@ -165,39 +166,47 @@ def main(argv):
 			if( ((int(mech[3]) >= int(mech[20])) and  (int(mech[3]) <= int(mech[21]))) or ((int(mech[4]) >= int(mech[20])) and  (int(mech[4]) <= int(mech[21]))) ):
 				overlap = True
 
-		#Mechanism inference
-		if((protein_target == False) and (protein_lncRNA == False) and (overlap == False)):
-			mech.append("direct")
-		elif((protein_target == True) and (protein_lncRNA == False or (protein not in lncRNA_peak_keys)) and (overlap == True)):
-			if(float(mech[27]) > 0):
-				mech.append("competitive_de-stabilizing")
-			elif(float(mech[27]) < 0):
-				mech.append("competitive_stabilizing")
-			else:
-				mech.append("competitive")
-		elif((protein_target == True) and (protein_lncRNA == True) and (overlap == False)):
-			if(protein in lncRNA_peak_keys):
-				mech.append("localization_single")
-			else:
-				mech.append("localization_multiple")
-		elif((protein_target == False) and (protein_lncRNA == True) and (overlap == False)):
-			mech.append("localization")
-		elif((protein_target == True) and (protein_lncRNA == False) and (overlap == False)):
-			if(float(mech[27]) > 0):
-				mech.append("stabilizing")
-			elif(float(mech[27]) < 0):
-				mech.append("de-stabilizing")
-			else:
-				mech.append("direct")
-		elif((protein_target == True) and (protein_lncRNA == True) and (overlap == True)):
-			if(protein_symbol == "AGO1"):
-				mech.append("miRNA-related")
-			elif(protein_symbol == "STAU"):
-				mech.append("STAU-mediated_decay")
-			else:
-				mech.append("Unknown")
+		if(overlap == True):
+			if(protein_target == True):
+				if(protein_lncRNA == True and protein in lncRNA_peak_keys):
+					mech.append("dsRNA_binding")  #TODO check all sites on lncRNA
+					continue
+				else:
+					if(float(mech[26]) >= 0 and float(mech[16]) < 0):
+						mech.append("competitive_downregulation")
+					elif(float(mech[26]) <= 0 and float(mech[16]) > 0):
+						mech.append("competitive_upregulation")
+					else:
+						continue
 		else:
-			mech.append("Unknown")
+			if(protein_target == True):
+				if(protein_lncRNA == True and protein not in lncRNA_peak_keys):
+					mech.append("complex_formation")
+				elif(protein_lncRNA == False):
+					if(float(mech[26]) >= 0 and float(mech[16]) < 0):
+						mech.append("de-stabilization")
+					elif(float(mech[26]) >= 0 and float(mech[16]) > 0):
+						mech.append("stabilization")
+					else:
+						continue
+			else:
+				if(protein_lncRNA == True):
+					if(float(mech[26]) == 0 and float(mech[16]) == 0):
+						continue
+					elif(float(mech[26]) <= 0 and float(mech[16]) <= 0):
+						mech.append("localization_downregulation")
+					elif(float(mech[26]) >= 0 and float(mech[16]) >= 0):
+						mech.append("localization_upregulation")
+					else:
+						mech.append("decoy")
+				else:
+					if(float(mech[16]) < 0):
+						mech.append("direct_downregulation")
+					if(float(mech[16]) > 0):
+						mech.append("direct_upregulation")
+					else:
+						continue
+						
 		print '\t'.join(mech)
 
 if __name__ == "__main__":

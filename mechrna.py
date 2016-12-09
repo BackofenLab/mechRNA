@@ -106,6 +106,10 @@ def command_line_process():
 		help='Type for running indepedent jobs: normal, sge, or pbs. (default: normal).',
 		default='normal'
 	)
+	parser.add_argument('--job-num-cpus',
+		help='Number of cpus per job in PBS file. Read documents before changing its value! (default: 1 cpu.)',
+		default='1'
+	)
 	parser.add_argument('--job-max-time',
 		help='Max job running time in PBS file. Read documents before changing its value! (default: 24 hour.)',
 		default='24:00:00'
@@ -473,7 +477,7 @@ def assign_worker(config):
 					with open(filename, 'w') as fsge:
 						pbs_log=pipeline.workdir+'/log/intarna_{0}.o'.format(i)
 						pbs_err= pipeline.workdir+'/log/intarna_{0}.e'.format(i)
-						worker_cmd = "qsub -cwd -V -b y -N {0}_{1} -l h_vmem={2} -l h_rt={3} -l h_stack=8M -o {4} -e {5} ".format( project_name, i, config.get("intarna", "job-memory"), config.get("intarna","job-time"), pbs_log, pbs_err) +  cmd;
+						worker_cmd = "qsub -cwd -V -b y -N {0}_{1} -pe ncpus {2} -l h_vmem={3} -l h_rt={4} -l h_stack=8M -o {5} -e {6} ".format( project_name, i, config.get("intarna", "job-cpus"), config.get("intarna", "job-memory"), config.get("intarna","job-time"), pbs_log, pbs_err) +  cmd;
 						fsge.write("#!/bin/bash\n")
 						fsge.write(worker_cmd)
 						st = os.stat(filename)
@@ -481,7 +485,7 @@ def assign_worker(config):
 				elif "pbs" == config.get("intarna", "engine-mode"):
 					with open('{0}/pbs/intarna_{1}.pbs'.format(workdir, i), 'w') as fpbs:
 						fpbs.write("#!/bin/bash\n")
-						fpbs.write("#PBS -l nodes=1:ppn=4,vmem={0},walltime={1}\n".format( config.get("intarna", "job-memory"), config.get("intarna", "job-time")) ) #TODO ppn
+						fpbs.write("#PBS -l nodes=1:ppn={0},vmem={1},walltime={2}\n".format(config.get("intarna", "job-cpus"), config.get("intarna", "job-memory"), config.get("intarna", "job-time")) ) 
 						fpbs.write("#PBS -N {0}_{1}\n".format(project_name, i))
 						fpbs.write("cd $PBS_O_WORKDIR\n")
 						fpbs.write("{0}".format(cmd))
@@ -711,6 +715,7 @@ def initialize_config_intarna( config, args):
 	config.set("intarna","engine-mode",args.mode if args.mode != None else "normal")
 	config.set("intarna","range", str( args.range ) if args.range !=None else "-1" )
 	config.set("intarna","worker-id", str(args.worker_id) if args.worker_id != None else "-1")
+	config.set("intarna","job-cpus", args.job_num_cpus if args.job_num_cpus != None else "1")
 	config.set("intarna","job-time", args.job_max_time if args.job_max_time != None else "24:00:00")
 	config.set("intarna","job-memory",args.job_max_memory if args.job_max_memory != None else "8G")
 	return config
