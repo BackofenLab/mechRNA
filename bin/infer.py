@@ -126,7 +126,7 @@ def main(argv):
 						protein_id = model.split(";")[0]
 						protein_gene = model.split(";")[1]
 						if annotated_interaction[1] in correl_proteins_data[model]:
-							annotated_interaction.extend(["NA","NA",protein_id,protein_gene,"0","1"])
+							annotated_interaction.extend(["NA","NA",protein_id,protein_gene,"0","1","NA"])
 							annotated_interaction.extend(correl_proteins_data[model][annotated_interaction[1]])
 							intarna_data.append(annotated_interaction)
 					#	else:
@@ -144,7 +144,7 @@ def main(argv):
 	########################################################################################################
 	# Inference 6-7 15-18 19-24 25-28
 	# IntaRNA 0-15 correl 16-19
-	# GraphProt 20-25 correl 26-29
+	# GraphProt 20-26 correl 27-30
 	#print intarna_data[0]
 
 	for mech in intarna_data:
@@ -172,9 +172,9 @@ def main(argv):
 					mech.append("dsRNA_binding")  #TODO check all sites on lncRNA
 					continue
 				else:
-					if(float(mech[26]) >= 0 and float(mech[16]) < 0):
+					if(float(mech[27]) >= 0 and float(mech[16]) < 0):
 						mech.append("competitive_downregulation")
-					elif(float(mech[26]) <= 0 and float(mech[16]) > 0):
+					elif(float(mech[27]) <= 0 and float(mech[16]) > 0):
 						mech.append("competitive_upregulation")
 					else:
 						continue
@@ -183,19 +183,19 @@ def main(argv):
 				if(protein_lncRNA == True and protein not in lncRNA_peak_keys):
 					mech.append("complex_formation")
 				elif(protein_lncRNA == False):
-					if(float(mech[26]) >= 0 and float(mech[16]) < 0):
+					if(float(mech[27]) >= 0 and float(mech[16]) < 0):
 						mech.append("de-stabilization")
-					elif(float(mech[26]) >= 0 and float(mech[16]) > 0):
+					elif(float(mech[27]) >= 0 and float(mech[16]) > 0):
 						mech.append("stabilization")
 					else:
 						continue
 			else:
 				if(protein_lncRNA == True):
-					if(float(mech[26]) == 0 and float(mech[16]) == 0):
+					if(float(mech[27]) == 0 and float(mech[16]) == 0):
 						continue
-					elif(float(mech[26]) <= 0 and float(mech[16]) <= 0):
+					elif(float(mech[27]) <= 0 and float(mech[16]) <= 0):
 						mech.append("localization_downregulation")
-					elif(float(mech[26]) >= 0 and float(mech[16]) >= 0):
+					elif(float(mech[27]) >= 0 and float(mech[16]) >= 0):
 						mech.append("localization_upregulation")
 					else:
 						mech.append("decoy")
