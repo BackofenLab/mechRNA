@@ -1,10 +1,10 @@
 library('MASS')
 
-top <- 2 #Top X percent of calls
-
 args <- commandArgs(trailingOnly = TRUE)
 
-data <- read.table(args[1], header=FALSE, sep = "\t")
+top <- as.integer(args[1]) #Top X percent of calls
+
+data <- read.table(args[2], header=FALSE, sep = "\t")
 
 data <- data[data$V10<0,]
 data.sort <- data[order(data$V10),]
@@ -34,6 +34,6 @@ intarna.pvalues.corr <- p.adjust(intarna.pvalues, method = "BH")
 data.obs[,"pvalues"] <- intarna.pvalues
 data.obs[,"FDR"] <- intarna.pvalues.corr
 
-write.table(file=paste(args[1],".pvalues", sep = ""), data.obs, sep = "\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
+write.table(file=paste(args[2],".pvalues", sep = ""), data.obs, sep = "\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
 
 #warnings()

@@ -62,6 +62,20 @@ def command_line_process():
 		metavar='reference',
 		help='"GRCh37.75" or "GRCh38.86"'
 	)
+	parser.add_argument('--topX','-x',
+		type=int,
+		metavar='topX',
+		help="Top x percent of IntaRNA predictions to retain for further analysis. (default: 2)",
+	)
+	parser.add_argument('--cancer','-t',
+		metavar='cancer',
+		help="Cancer type of interest. Supported: prostate, meso.peri (default: prostate)",
+	)
+	parser.add_argument('--peak-cutoff','-P',
+		type=float,
+		metavar='peak_cutoff',
+		help="P-value cutoff for protein binding peaks. (default: 0.01)",
+	)
 	parser.add_argument('--max-loop','-L',
 		type=int,
 		metavar='max_loop',
@@ -379,7 +393,7 @@ def intarna_pvalues(config):
 	control_file  = "{0}/log/04.pvalues.log".format(workdir);
 	complete_file = "{0}/stage/04.pvalues.finished".format(workdir);
 	freeze_arg    = ""
-	cmd           = pipeline.intarna_pvalues + ' {0}'.format(input_file)
+	cmd           = pipeline.intarna_pvalues + ' {0} {1}'.format(config.get("project", "topX"), input_file)
 	run_cmd       = not ( os.path.isfile(complete_file) and freeze_arg in open(complete_file).read()) 
 
 	if ( run_cmd ):
@@ -398,7 +412,7 @@ def inference(config):
 	control_file  = "{0}/log/05.inference.log".format(workdir);
 	complete_file = "{0}/stage/05.inference.finished".format(workdir);
 	freeze_arg    = ""
-	cmd           = pipeline.inference + ' -i {0} -r {1} -m {2} > {3}'.format(input_file, config.get("project", "reference"), models, output_file ) 
+	cmd           = pipeline.inference + ' -i {0} -r {1} -m {2} -c {3} -p {4} > {5}'.format(input_file, config.get("project", "reference"), models, config.get("project", "cancer"), config.get("project", "peak-cutoff"), output_file ) 
 	run_cmd       = not ( os.path.isfile(complete_file) and freeze_arg in open(complete_file).read()) 
 
 	if ( run_cmd ):
@@ -770,6 +784,9 @@ def check_project_preq():
 		config.set("project", "lncRNA", args.lncRNA)
 		config.set("project", "reference", str(args.reference) if args.reference != None else "GRCh37.75") 
 		config.set("project", "num-worker", str(args.num_worker) if args.num_worker != None else "1" )
+		config.set("project", "topX", args.topx if args.topx != None else "2" )
+		config.set("project", "cancer", str(args.cancer) if args.cancer != None else "prostate" )
+		config.set("project", "peak-cutoff", args.peak_cutoff if args.peak_cutoff != None else "0.01" )
 
 		# Parameters for other parts in the pipeline
 		initialize_config_graphprot(config, args)

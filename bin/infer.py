@@ -17,14 +17,14 @@ def parse_accessible_region(region):
 def main(argv):
 
 	try:
-		opts, args = getopt.getopt(argv,"hi:r:m:",["ifile=","mfile="])#,"ofile="])
+		opts, args = getopt.getopt(argv,"hi:r:m:c:p:",["ifile=","mfile="])#,"ofile="])
 	except getopt.GetoptError:
-		print 'infer.py -i <inputfile> -r <reference> -m <models>'
+		print 'infer.py -i <inputfile> -r <reference> -m <models> -c <cancer> -p <peak-cutoff>'
 		sys.exit(2)
 
 	for opt, arg in opts:
 		if opt == '-h':
-			print 'infer.py -i <inputfile> -r <reference> -m <models>'
+			print 'infer.py -i <inputfile> -r <reference> -m <models> -c <cancer> -p <peak-cutoff>'
 			sys.exit()
 		elif opt in ("-i", "--ifile"):
 			inputfile = arg
@@ -32,9 +32,13 @@ def main(argv):
 			ref = arg
 		elif opt in ("-m", "--models"):
 			modelsfile = arg
-
+		elif opt in ("-c", "--cancer"):
+			cancer_type = arg
+		elif opt in ("-p", "--peak-cutoff"):
+			p_cutoff = arg
+	
 	#correlationfile = "/home/agawrons/data/net.edges.sig.genes"
-	correlationfile = "./data/net.edges.sig.genes"
+	correlationfile = "./data/{0}.net.edges.sig.genes".format(cancer_type)
 	proteinfile = "./data/peaks/graphprot.peaks.{0}.sig".format(ref) 
 	#correlationfile = "../data/test.net"
 	#proteinfile = "../data/test.peaks.pvalues.genes" 
@@ -82,9 +86,10 @@ def main(argv):
 			gene = ids[1]
 			if (trans == lncRNA[0]):
 				for protein in tokens[3].split(","):
-					if protein not in lncRNA_peak_keys:
-						lncRNA_peak_keys[protein] = list()
-					lncRNA_peak_keys[protein].append(tokens[0])
+					if (float(tokens[5]) < float(p_cutoff)):
+						if protein not in lncRNA_peak_keys:
+							lncRNA_peak_keys[protein] = list()
+						lncRNA_peak_keys[protein].append(tokens[0])
 			for model in models:
 				for protein in tokens[3].split(","):
 					protein_id = protein.split(";")[0]
@@ -117,7 +122,7 @@ def main(argv):
 				annotated_interaction = list(interaction)
 				if ids in graphprot_data[model]:
 					for peak in graphprot_data[model][ids]:
-						if((int(annotated_interaction[3]) >= int(peak[0]) and int(annotated_interaction[3]) <= int(peak[1])) or (int(annotated_interaction[4]) >= int(peak[0]) and int(annotated_interaction[4]) <= int(peak[1]))):# or (peak[5] != 0)):
+						if((int(annotated_interaction[3]) >= int(peak[0]) and int(annotated_interaction[3]) <= int(peak[1])) or (int(annotated_interaction[4]) >= int(peak[0]) and int(annotated_interaction[4]) <= int(peak[1])) or (peak[5] != 0)):
 							annotated_interaction_peak = list(annotated_interaction)
 							annotated_interaction_peak.extend(peak)
 							intarna_data.append(annotated_interaction_peak)
@@ -129,10 +134,14 @@ def main(argv):
 							annotated_interaction.extend(["NA","NA",protein_id,protein_gene,"0","1","NA"])
 							annotated_interaction.extend(correl_proteins_data[model][annotated_interaction[1]])
 							intarna_data.append(annotated_interaction)
-					#	else:
-					#		annotated_interaction.extend(["NA","NA","NA","0","1","0","1","1","NA"])
-					#else:
-						#annotated_interaction.extend(["NA","NA","NA","0","1","0","1","1","NA"]) 					
+						else:
+							if interaction[1] in correl_lncRNA_data:
+								annotated_interaction.extend(["NA","NA","NA","NA","0","1","NA","0","1","1","NA"])
+								intarna_data.append(annotated_interaction)
+					else:
+						if interaction[1] in correl_lncRNA_data:
+							annotated_interaction.extend(["NA","NA","NA","NA","0","1","NA","0","1","1","NA"]) 					
+							intarna_data.append(annotated_interaction)
 
 		# print intarna_data[0]
 		# print intarna_data[0][6]
@@ -158,7 +167,7 @@ def main(argv):
 		#Determine features of interaction
 		if((mech[20] != "NA")):# and (float(mech[27]) != 1)):
 			protein_target = True
-			protein = mech[22]
+			protein = "{0};{1}".format(mech[22],mech[23])
 			protein_symbol = mech[23]
 		if(any(lncRNA_peak_keys)):
 			protein_lncRNA = True
@@ -168,27 +177,45 @@ def main(argv):
 
 		if(overlap == True):
 			if(protein_target == True):
-				if(protein_lncRNA == True and protein in lncRNA_peak_keys):
-					mech.append("dsRNA_binding")  #TODO check all sites on lncRNA
-					continue
-				else:
+				#if(protein_lncRNA == True and protein in lncRNA_peak_keys):
+				#	mech.append("dsRNA_binding")  #TODO check all sites on lncRNA
+				#	continue
+				#else:
+				if(protein not in lncRNA_peak_keys):
 					if(float(mech[27]) >= 0 and float(mech[16]) < 0):
 						mech.append("competitive_downregulation")
 					elif(float(mech[27]) <= 0 and float(mech[16]) > 0):
 						mech.append("competitive_upregulation")
 					else:
 						continue
+				else:
+					continue
 		else:
 			if(protein_target == True):
-				if(protein_lncRNA == True and protein not in lncRNA_peak_keys):
-					mech.append("complex_formation")
-				elif(protein_lncRNA == False):
-					if(float(mech[27]) >= 0 and float(mech[16]) < 0):
+				complex_found = False;
+				for lncRNA_protein in lncRNA_peak_keys:
+					if(lncRNA_protein != protein and mech[1] in correl_proteins_data[lncRNA_protein]):
+						lncRNA_protein_correl = correl_proteins_data[lncRNA_protein][mech[1]][0]
+						temp_mech = list(mech)
+						if(float(lncRNA_protein_correl) > 0 and float(mech[27]) > 0 and float(mech[16]) > 0):
+							mech.append("complex_formation_upregulation")
+						elif(float(lncRNA_protein_correl) < 0 and float(mech[27]) < 0 and float(mech[16]) < 0):
+							mech.append("complex_formation_downregulation")
+						else:
+							continue;
+						print '\t'.join(mech)
+						mech = list(temp_mech)
+						complex_found = True
+
+				if(not complex_found and protein not in lncRNA_peak_keys):
+					if(float(mech[27]) > 0 and float(mech[16]) < 0):
 						mech.append("de-stabilization")
-					elif(float(mech[27]) >= 0 and float(mech[16]) > 0):
+					elif(float(mech[27]) > 0 and float(mech[16]) > 0):
 						mech.append("stabilization")
 					else:
 						continue
+				else:
+					continue
 			else:
 				if(protein_lncRNA == True):
 					if(float(mech[27]) == 0 and float(mech[16]) == 0):
@@ -197,8 +224,10 @@ def main(argv):
 						mech.append("localization_downregulation")
 					elif(float(mech[27]) >= 0 and float(mech[16]) >= 0):
 						mech.append("localization_upregulation")
-					else:
+					elif(float(mech[27]) != 0):
 						mech.append("decoy")
+					else:
+						continue
 				else:
 					if(float(mech[16]) < 0):
 						mech.append("direct_downregulation")
