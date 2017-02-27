@@ -22,7 +22,6 @@ class pipeline:
 	intarna  = os.path.dirname(os.path.realpath(__file__)) + "/bin/IntaRNA"
 	intarna_pvalues  = "Rscript " + os.path.dirname(os.path.realpath(__file__)) + "/bin/intarna_pvals_gamma.R"
 	inference  = "python " + os.path.dirname(os.path.realpath(__file__)) + "/bin/infer.py"
-	join_pvalues  = "Rscript " + os.path.dirname(os.path.realpath(__file__)) + "/bin/join_pvals_zscore.R"
 	workdir  = os.path.dirname(os.path.realpath(__file__))
 	# example usage for help
 	example  = "\tTo create a new project: specify (1) project name and (2) lncRNA sequence\n"
@@ -330,7 +329,7 @@ def clean_state_worker( workdir, config):
 def clean_state( mode_index, workdir, config ):
 	flag_clean = 0 # 1 only when we delete files due to changes in project.config
 	workdir = pipeline.workdir	
-	valid_state = [ '01.graphprot', '02.worker', '04.pvalues', '05.inference', '06.join_pvalues', 'normal']
+	valid_state = [ '01.graphprot', '02.worker', '04.pvalues', '05.inference', 'normal']
 	for i in range( mode_index, len(valid_state)):
 		if os.path.isfile(workdir + "/stage/" + valid_state[i] + ".finished" ):
 		#try:
@@ -417,23 +416,6 @@ def inference(config):
 
 	if ( run_cmd ):
 		clean_state( 3, workdir, config )
-	shell( msg, run_cmd, cmd, control_file, complete_file, freeze_arg)
-
-#############################################################################################
-###### Running commands for joining pvalues 
-def join_pvalues(config):
-	msg           = "Joining P-values"
-	project_name  = config.get("project", "name")
-	workdir		  = pipeline.workdir
-	input_file    = "{0}/{1}.results.pvalues.mechs".format(workdir, config.get("project", "name"))
-	control_file  = "{0}/log/06.join_pvalues.log".format(workdir);
-	complete_file = "{0}/stage/06.join_pvalues.finished".format(workdir);
-	freeze_arg    = ""
-	cmd           = pipeline.join_pvalues + ' {0}'.format(input_file)
-	run_cmd       = not ( os.path.isfile(complete_file) and freeze_arg in open(complete_file).read()) 
-
-	if ( run_cmd ):
-		clean_state( 2, workdir, config)
 	shell( msg, run_cmd, cmd, control_file, complete_file, freeze_arg)
 
 #############################################################################################
@@ -614,7 +596,6 @@ def run_command(config, force=False):
 
 	intarna_pvalues(config)
 	inference(config)
-	join_pvalues(config)
 
 #############################################################################################
 def mkdir_p(path):
@@ -693,7 +674,6 @@ def resume_state_help():
 	print "\tintarna: predicts RNA-RNA interactions"
 	print "\tpvalues: computes intarna p-values"
 	print "\tinference: determines potential mechanism using correlation and relative locations of interactions"
-	print "\tjoin_pvalues: computes joint p-values"
 	print "\tnum-worker: generate jobs for parallel processing"
 	print "\nNOTE\tIf you want to automatically resume a killed job, just type --resume"
 
