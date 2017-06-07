@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #786 
 
-import os, sys, errno, argparse, subprocess, fnmatch, ConfigParser, time, stat, datetime
+import os, sys, errno, argparse, subprocess, fnmatch, ConfigParser, time, stat, datetime, math
 
 #from __future__ import print_function
 #############################################################################################
@@ -309,7 +309,7 @@ def generate_merge_script( config, num_worker ):
 		cmd = 'FILE={0}.results\nif [ -f $FILE ]; then rm -f ${{FILE}}; fi & touch ${{FILE}}\n'.format( output_prefix )
 		f_script.write("#!/bin/bash\n{0}\n".format(cmd))
 		for i in xrange( num_worker):
-			f_script.write("part_info={0}_{1}; if [ -f ${{part_info}} ]; then cat ${{part_info}} >> ${{FILE}}; else printf \"Missing File %s\\n\" ${{part_info}};fi\n".format(worker_prefix, i))
+			f_script.write("part_info={0}_{1}; if [ -f ${{part_info}} ]; then cat ${{part_info}} | grep -E -v 'id1|INFO|WARN' | sed \"s,\x1B\[[0-9;]*[a-zA-Z],,g\" >> ${{FILE}}; else printf \"Missing File %s\\n\" ${{part_info}};fi\n".format(worker_prefix, i))
 	st = os.stat((pipeline.workdir + "/merge_output.sh"))
 	os.chmod((pipeline.workdir + "/merge_output.sh"), st.st_mode | stat.S_IEXEC)
 
@@ -377,12 +377,13 @@ def intarna(config ):
 	control_file  = "{0}/log/03.intarna.{1}.log".format(workdir, worker_id);
 	complete_file = "{0}/stage/03.intarna.{1}.finished".format(workdir, worker_id);
 	success_message	 = "completed"
-	#freeze_arg    = "{0}\t{1}\t{2}\t{3}\t{4}".format(worker_id, rng, config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"))
-	cmd           = pipeline.intarna +' -P -L {0} -w {1} -s {2} -c {3} -t {4} -m {5} -r {6} > {7}'.format(config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"), config.get("intarna","max-len"), target_file, lncRNA_file, rng, output_prefix)
+	#freeze_arg    = "{0}\t{1}\t{2}\t{3}\t{4}".format(worker_id, rng, config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"))  
+	#cmd           = pipeline.intarna +" --tAccL {0} --tAccW {1} --qAccL {2} --qAccW {3} -n {4} -t {5} -q {6} --tRange {7} --outMode=C --outCsvCols 'id1,id2,subseq1,subseq2,subseqDP,start1,end1,start2,end2,hybridDP,Pu1,Pu2,E_init,E_loops,E_dangleL,E_dangleR,E_endL,E_endR,seedStart1,seedEnd1,seedStart2,seedEnd2,seedE,seedED1,seedED2,seedPu1,seedPu2,ED1,ED2,E' > {8}".format(config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"), target_file, lncRNA_file, rng, output_prefix)
+	cmd           = pipeline.intarna +" --tAccL {0} --tAccW {1} --qAccL {2} --qAccW {3} -n {4} -t {5} -q {6} --tRange {7} --outMode=C --outCsvCols 'id1,id2,start1,end1,start2,end2,E_init,E_loops,E_dangleL,E_dangleR,E_endL,E_endR,ED1,ED2,E' > {8}".format(config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"), target_file, lncRNA_file, rng, output_prefix)
 	run_cmd       = not ( os.path.isfile(complete_file) and success_message in open(complete_file).read()) 
 	shell( msg, run_cmd, cmd, control_file, complete_file, success_message)
 
-#############################################################################################
+############################################################################################# config.get("intarna","max-len"), 
 ###### Running commands for intarna pvalues 
 def intarna_pvalues(config):
 	msg           = "Computing P-values"
@@ -462,10 +463,10 @@ def assign_worker(config):
 			complete_file = "{0}/stage/03.intarna.{1}.finished".format(workdir, i);
 			if( not os.path.isfile(complete_file)):
 				# worker i
-				st = (nj / maxjobs) * i
+				st = int(math.ceil(float(nj) / float(maxjobs))) * i
 				if st >= nj:
 					break
-				ed = min(nj, ((nj / maxjobs) * (i + 1)-1))
+				ed = min(nj, ((int(math.ceil(float(nj) / float(maxjobs)))) * (i + 1)-1))
 				rng = '{0}-{1}'.format(st, ed)
 				cmd = pipeline.mechrna + " -p {0} -l {1} --range {2} --worker-id {3} --num-worker 1 --resume intarna \n".format( pipeline.workdir, lncRNA_file, rng, i )
 				if "sge" == config.get("intarna", "engine-mode"):
@@ -704,7 +705,7 @@ def initialize_config_intarna( config, args):
 	config.set("intarna", "window", str( args.window ) if args.window != None else "200")
 	config.set("intarna", "suboptimals", str( args.suboptimals ) if args.suboptimals !=None else "4")
 	config.set("intarna", "max-len", str( args.max_len ) if args.max_len !=None else "1000")
-	config.set("intarna", "targets", "{0}/data/refs/ensembl.{1}.ncrna.cdna.40".format(os.path.dirname(os.path.realpath(__file__)), config.get("project", "reference")))
+	config.set("intarna", "targets", "{0}/data/refs/ensembl.{1}.ncrna.cdna.40.full".format(os.path.dirname(os.path.realpath(__file__)), config.get("project", "reference")))
 #	config.set("intarna", "targets", "{0}/data/test.targets.fa".format(os.path.dirname(os.path.realpath(__file__))))
 	config.set("intarna","engine-mode",args.mode if args.mode != None else "normal")
 	config.set("intarna","range", str( args.range ) if args.range !=None else "-1" )
@@ -764,7 +765,7 @@ def check_project_preq():
 		config.set("project", "lncRNA", args.lncRNA)
 		config.set("project", "reference", str(args.reference) if args.reference != None else "GRCh37.75") 
 		config.set("project", "num-worker", str(args.num_worker) if args.num_worker != None else "1" )
-		config.set("project", "topX", args.topx if args.topx != None else "2" )
+		config.set("project", "topX", args.topX if args.topX != None else "2" )
 		config.set("project", "cancer", str(args.cancer) if args.cancer != None else "prostate" )
 		config.set("project", "peak-cutoff", args.peak_cutoff if args.peak_cutoff != None else "0.01" )
 

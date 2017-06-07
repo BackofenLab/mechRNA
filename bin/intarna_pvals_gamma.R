@@ -4,18 +4,18 @@ args <- commandArgs(trailingOnly = TRUE)
 
 top <- as.integer(args[1]) #Top X percent of calls
 
-data <- read.table(args[2], header=FALSE, sep = "\t")
+data <- read.table(args[2], header=FALSE, sep = ";")
 
-data <- data[data$V10<0,]
-data.sort <- data[order(data$V10),]
+data <- data[data$V15<0,]
+data.sort <- data[order(data$V15),]
 
 #Create observed and background sets
 index <- as.integer(nrow(data.sort)*top/100)
 data.obs <- data.sort[1:index,] 
 data.back <- data.sort[(index+1):nrow(data.sort),]
 
-energies.obs <- data.obs[,10]
-energies.back <- data.back[,10]
+energies.obs <- data.obs[,15]
+energies.back <- data.back[,15]
 
 energies.obs <- energies.obs*(-1)
 energies.back <- energies.back*(-1)
