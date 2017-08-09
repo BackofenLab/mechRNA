@@ -329,7 +329,7 @@ def clean_state_worker( workdir, config):
 def clean_state( mode_index, workdir, config ):
 	flag_clean = 0 # 1 only when we delete files due to changes in project.config
 	workdir = pipeline.workdir	
-	valid_state = [ '01.graphprot', '02.worker', '04.pvalues', '05.inference', 'normal']
+	valid_state = [ '01.graphprot', '02.worker', '04.inference', 'normal']
 	for i in range( mode_index, len(valid_state)):
 		if os.path.isfile(workdir + "/stage/" + valid_state[i] + ".finished" ):
 		#try:
@@ -382,23 +382,6 @@ def intarna(config ):
 	cmd           = pipeline.intarna +" --tAccL {0} --tAccW {1} --qAccL {2} --qAccW {3} -n {4} -t {5} -q {6} --tRange {7} --outMode=C --outCsvCols 'id1,id2,start1,end1,start2,end2,E_init,E_loops,E_dangleL,E_dangleR,E_endL,E_endR,ED1,ED2,E' > {8}".format(config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"), target_file, lncRNA_file, rng, output_prefix)
 	run_cmd       = not ( os.path.isfile(complete_file) and success_message in open(complete_file).read()) 
 	shell( msg, run_cmd, cmd, control_file, complete_file, success_message)
-
-############################################################################################# config.get("intarna","max-len"), 
-###### Running commands for intarna pvalues 
-def intarna_pvalues(config):
-	msg           = "Computing P-values"
-	project_name  = config.get("project", "name")
-	workdir		  = pipeline.workdir
-	input_file    = "{0}/{1}.results".format(workdir, config.get("project", "name"))
-	control_file  = "{0}/log/04.pvalues.log".format(workdir);
-	complete_file = "{0}/stage/04.pvalues.finished".format(workdir);
-	freeze_arg    = ""
-	cmd           = pipeline.intarna_pvalues + ' {0} {1}'.format(config.get("project", "topX"), input_file)
-	run_cmd       = not ( os.path.isfile(complete_file) and freeze_arg in open(complete_file).read()) 
-
-	if ( run_cmd ):
-		clean_state( 2, workdir, config)
-	shell( msg, run_cmd, cmd, control_file, complete_file, freeze_arg)
 	
 #############################################################################################
 ###### Running commands for inference
@@ -406,13 +389,13 @@ def inference(config):
 	msg           = "Inferring Mechanisms"
 	project_name  = config.get("project", "name")
 	workdir		  = pipeline.workdir
-	input_file    = "{0}/{1}.results.pvalues".format(workdir, config.get("project","name"))
+	input_file    = "{0}/{1}.results".format(workdir, config.get("project","name"))
 	models        = "{0}/{1}".format(workdir, config.get("graphprot","rbps"))
-	output_file   = "{0}/{1}.results.pvalues.mechs".format(workdir, config.get("project","name"))
-	control_file  = "{0}/log/05.inference.log".format(workdir);
-	complete_file = "{0}/stage/05.inference.finished".format(workdir);
+	output_file   = "{0}/{1}.results.mechs".format(workdir, config.get("project","name"))
+	control_file  = "{0}/log/04.inference.log".format(workdir);
+	complete_file = "{0}/stage/04.inference.finished".format(workdir);
 	freeze_arg    = ""
-	cmd           = pipeline.inference + ' -i {0} -r {1} -m {2} -c {3} -p {4} > {5}'.format(input_file, config.get("project", "reference"), models, config.get("project", "cancer"), config.get("project", "peak-cutoff"), output_file ) 
+	cmd           = pipeline.inference + ' -i {0} -r {1} -m {2} -c {3} -p {4} -x {5}'.format(input_file, config.get("project", "reference"), models, config.get("project", "cancer"), config.get("project", "peak-cutoff"), config.get("project", "topX")) 
 	run_cmd       = not ( os.path.isfile(complete_file) and freeze_arg in open(complete_file).read()) 
 
 	if ( run_cmd ):
@@ -430,7 +413,7 @@ def assign_worker(config):
 	output_file   = "{0}/jobs.sh".format(workdir)
 	control_file  = "{0}/log/02.worker.log".format(workdir);
 	complete_worker_file = "{0}/stage/02.worker.finished".format(workdir);
-	nj            = 0;
+	nj            = 0; 
 
 	with open(target_file) as fasta:
 		for line in fasta:
@@ -466,7 +449,7 @@ def assign_worker(config):
 				st = int(math.ceil(float(nj) / float(maxjobs))) * i
 				if st >= nj:
 					break
-				ed = min(nj, ((int(math.ceil(float(nj) / float(maxjobs)))) * (i + 1)-1))
+				ed = min((nj-1), ((int(math.ceil(float(nj) / float(maxjobs)))) * (i + 1)-1))
 				rng = '{0}-{1}'.format(st, ed)
 				cmd = pipeline.mechrna + " -p {0} -l {1} --range {2} --worker-id {3} --num-worker 1 --resume intarna \n".format( pipeline.workdir, lncRNA_file, rng, i )
 				if "sge" == config.get("intarna", "engine-mode"):
@@ -509,7 +492,7 @@ def assign_worker(config):
 			suc_file.write("{0}".format( freeze_arg ))
 			logOK()
 		# to re-run jobs
-		clean_state( 10, workdir, config )
+		#clean_state( 1, workdir, config )
 
 ###############################################################################################			
 ########### submitting IntaRNA jobs
@@ -595,7 +578,6 @@ def run_command(config, force=False):
 	shell( msg, True, cmd)
 	logOK()
 
-	intarna_pvalues(config)
 	inference(config)
 
 #############################################################################################
@@ -671,9 +653,8 @@ def check_binary_preq():
 #############################################################################################
 def resume_state_help():
 	print "\nMechRNA supports the following resume states:"
-	print "\tgraphprot: computes protein binding sites on the lncRNA"
+	#print "\tgraphprot: computes protein binding sites on the lncRNA"
 	print "\tintarna: predicts RNA-RNA interactions"
-	print "\tpvalues: computes intarna p-values"
 	print "\tinference: determines potential mechanism using correlation and relative locations of interactions"
 	print "\tnum-worker: generate jobs for parallel processing"
 	print "\nNOTE\tIf you want to automatically resume a killed job, just type --resume"
