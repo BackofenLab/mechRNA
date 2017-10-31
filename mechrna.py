@@ -49,10 +49,6 @@ def command_line_process():
 		metavar='lncRNA',
 		help='Fasta file of lncRNA of interest.'
 	)
-	parser.add_argument('--rbps', '-b',
-		metavar='rbps',
-		help='List of RNA binding proteins to include in the analysis.'
-	)
 	parser.add_argument('--dest','-d',
 		metavar='destination',
 		help='Directory that will be used for analysis. (default: ./)'
@@ -61,12 +57,24 @@ def command_line_process():
 		metavar='reference',
 		help='"GRCh37.75" or "GRCh38.86"'
 	)
+	parser.add_argument('--targets','-T',
+		metavar='targets',
+		help='File with ensembl gene IDs'
+	)
+	parser.add_argument('--rbps', '-B',
+		metavar='rbps',
+		help='List of RNA binding proteins to include in the analysis.'
+	)
+	parser.add_argument('--mechs', '-M',
+		metavar='mechs',
+		help='List of mechanisms to include in the analysis.'
+	)
 	parser.add_argument('--topX','-x',
 		type=int,
 		metavar='topX',
 		help="Top x percent of IntaRNA predictions to retain for further analysis. (default: 2)",
 	)
-	parser.add_argument('--cancer','-t',
+	parser.add_argument('--cancer','-c',
 		metavar='cancer',
 		help="Cancer type of interest. Supported: prostate, meso.peri (default: prostate)",
 	)
@@ -90,7 +98,7 @@ def command_line_process():
 		metavar='suboptimals',
 		help="Number of suboptimals to compute. (default: 4)",
 	)
-	parser.add_argument('--max-len','-c',
+	parser.add_argument('--max-len','-m',
 		type=int,
 		metavar='max_len',
 		help="Maximum accessible transcript region. (default: 1000)",
@@ -391,11 +399,12 @@ def inference(config):
 	workdir		  = pipeline.workdir
 	input_file    = "{0}/{1}.results".format(workdir, config.get("project","name"))
 	models        = "{0}/{1}".format(workdir, config.get("graphprot","rbps"))
+	mechs         = "{0}/{1}".format(workdir, config.get("intarna","mechs"))
 	output_file   = "{0}/{1}.results.mechs".format(workdir, config.get("project","name"))
 	control_file  = "{0}/log/04.inference.log".format(workdir);
 	complete_file = "{0}/stage/04.inference.finished".format(workdir);
 	freeze_arg    = ""
-	cmd           = pipeline.inference + ' -i {0} -r {1} -m {2} -c {3} -p {4} -x {5}'.format(input_file, config.get("project", "reference"), models, config.get("project", "cancer"), config.get("project", "peak-cutoff"), config.get("project", "topX")) 
+	cmd           = pipeline.inference + ' -i {0} -r {1} -m {2} -n {3} -c {4} -p {5} -x {6} -a {7}'.format(input_file, config.get("project", "reference"), models, mechs, config.get("project", "cancer"), config.get("project", "peak-cutoff"), config.get("project", "topX"), config.get("project", "apriori")) 
 	run_cmd       = not ( os.path.isfile(complete_file) and freeze_arg in open(complete_file).read()) 
 
 	if ( run_cmd ):
@@ -448,8 +457,9 @@ def assign_worker(config):
 				# worker i
 				st = int(math.ceil(float(nj) / float(maxjobs))) * i
 				if st >= nj:
+					maxjobs = i
 					break
-				ed = min((nj-1), ((int(math.ceil(float(nj) / float(maxjobs)))) * (i + 1)-1))
+				ed = min(nj, ((int(math.ceil(float(nj) / float(maxjobs)))) * (i + 1)-1))
 				rng = '{0}-{1}'.format(st, ed)
 				cmd = pipeline.mechrna + " -p {0} -l {1} --range {2} --worker-id {3} --num-worker 1 --resume intarna \n".format( pipeline.workdir, lncRNA_file, rng, i )
 				if "sge" == config.get("intarna", "engine-mode"):
@@ -472,6 +482,11 @@ def assign_worker(config):
 					worker_cmd = "qsub {0}/pbs/{1}.pbs\n".format(workdir,i)
 				else: # local machine
 					worker_cmd = cmd + "\n"
+					with open(output_file, 'w') as fj:
+						fj.write("#!/bin/bash\n")
+						fj.write(worker_cmd)
+						st = os.stat(output_file)
+						os.chmod(output_file, st.st_mode | stat.S_IEXEC)
 	
 				#with open('{0}'.format(output_file), 'a') as fj:
 				#	fj.write(worker_cmd)
@@ -483,9 +498,6 @@ def assign_worker(config):
 			else:
 				log("Job {0}...".format(i))
 				logWAR()
-
-		#st = os.stat(output_file)
-		#os.chmod(output_file, st.st_mode | stat.S_IEXEC)
 
 		generate_merge_script( config, maxjobs  )
 		with open (complete_worker_file, 'w') as suc_file:
@@ -688,6 +700,7 @@ def initialize_config_intarna( config, args):
 	config.set("intarna", "max-len", str( args.max_len ) if args.max_len !=None else "1000")
 	config.set("intarna", "targets", "{0}/data/refs/ensembl.{1}.ncrna.cdna.40.full".format(os.path.dirname(os.path.realpath(__file__)), config.get("project", "reference")))
 #	config.set("intarna", "targets", "{0}/data/test.targets.fa".format(os.path.dirname(os.path.realpath(__file__))))
+	config.set("intarna", "mechs", str( args.mechs ) if args.mechs != None else  "{0}/data/mechs.list".format(os.path.dirname(os.path.realpath(__file__))))
 	config.set("intarna","engine-mode",args.mode if args.mode != None else "normal")
 	config.set("intarna","range", str( args.range ) if args.range !=None else "-1" )
 	config.set("intarna","worker-id", str(args.worker_id) if args.worker_id != None else "-1")
@@ -745,6 +758,7 @@ def check_project_preq():
 		config.set("project", "name", project_name)
 		config.set("project", "lncRNA", args.lncRNA)
 		config.set("project", "reference", str(args.reference) if args.reference != None else "GRCh37.75") 
+		config.set("project", "targets", str(args.targets) if args.targets != None else None) 
 		config.set("project", "num-worker", str(args.num_worker) if args.num_worker != None else "1" )
 		config.set("project", "topX", args.topX if args.topX != None else "2" )
 		config.set("project", "cancer", str(args.cancer) if args.cancer != None else "prostate" )
@@ -764,11 +778,38 @@ def check_project_preq():
 		mkdir_p(workdir +'/pbs');
 		mkdir_p(workdir +'/stage');
 
+		# Generate targets file
+		geneIDsfile = config.get("project", "targets") 
+		reffile = config.get("intarna", "targets")
+		geneIDs = set()
+
+		if(geneIDsfile != None):
+			writer = open(pipeline.workdir+"/targets.fa", 'w')
+			with open(geneIDsfile, 'r') as geneIDs_in:
+				for line in geneIDs_in:
+					geneIDs.add(line[:-1])
+
+			with open(reffile, 'r') as ref_in:
+				for line in ref_in:
+					if(line[0] == '>'):
+						trans_id = line.split(";")[0][1:]
+						if(trans_id in geneIDs):
+							writer.write(line)
+							writer.write(next(ref_in))
+			writer.close()
+			config.set("intarna", "targets", pipeline.workdir+"/targets.fa")
+			config.set("project", "apriori", "True")
+		else:
+			symlink(config.get("intarna", "targets"),  workdir)
+			config.set("project", "apriori", "False")
+			
+		config.set("intarna", "targets", os.path.basename(config.get("intarna", "targets")))
+
+		symlink(config.get("intarna","mechs"),  workdir)
+		config.set("intarna", "mechs", os.path.basename(config.get("intarna", "mechs")))
+
 		symlink(config.get("graphprot","rbps"),  workdir)
 		config.set("graphprot", "rbps", os.path.basename(config.get("graphprot", "rbps")))
-		
-		symlink(config.get("intarna", "targets"),  workdir)
-		config.set("intarna", "targets", os.path.basename(config.get("intarna", "targets")))
 
 		symlink(config.get("project", "lncRNA"),  workdir)
 		config.set("project", "lncRNA", os.path.basename(config.get("project", "lncRNA")))

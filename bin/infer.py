@@ -15,8 +15,11 @@ indels = dict()
 upregulators = dict()
 downregulators = dict()
 complexes = dict()
+mechs = set()
 all_genes = dict()
 all_trans = dict()
+LOCAL_DIST = 1000
+OVERLAP_DIST = 50
 
 rna_inter_members = ["t_trans_id","t_gene_id","t_gene_symbol","l_trans_id","l_gene_id","l_gene_symbol","t_start","t_end","l_start","l_end","E_init","E_loops","E_dangleL","E_dangleR","E_endL","E_endR","ED1","ED2","E","pvalue","fdr","mutations","anno1","anno2"]
 protein_inter_members = ["start", "end", "gene_id", "gene_symbol", "peak", "pvalue", "pid", "mutations"]
@@ -50,11 +53,11 @@ class Candidate:
 	def get_pvalues(self):
 		pvalues = list()
 		pvalues.append(float(self.rna.pvalue))
-		if(self.correl.pvalue != 1): pvalues.append(float(self.correl.pvalue))
-		if(self.t_peak.pvalue != 1): pvalues.append(float(self.t_peak.pvalue))
-		if(self.t_peak.correl.pvalue != 1): pvalues.append(float(self.t_peak.correl.pvalue))
-		if(self.l_peak.pvalue != 1): pvalues.append(float(self.l_peak.pvalue))
-		if(self.l_peak.correl.pvalue != 1): pvalues.append(float(self.l_peak.correl.pvalue))
+		if(float(self.correl.pvalue) != 1): pvalues.append(float(self.correl.pvalue))
+		if(float(self.t_peak.pvalue) != 1): pvalues.append(float(self.t_peak.pvalue))
+		if(float(self.t_peak.correl.pvalue) != 1): pvalues.append(float(self.t_peak.correl.pvalue))
+		if(float(self.l_peak.pvalue) != 1): pvalues.append(float(self.l_peak.pvalue))
+		if(float(self.l_peak.correl.pvalue) != 1): pvalues.append(float(self.l_peak.correl.pvalue))
 		for i in xrange(len(pvalues)):
 			if(pvalues[i] == 0):
 				pvalues[i] = float(1e-22)
@@ -86,7 +89,7 @@ class RNA_Interaction:
 		self.E_endR = tokens[11]
 		self.ED1 = tokens[12]
 		self.ED2 = tokens[13]
-		self.E = tokens[14][:-1]
+		self.E = tokens[14]
 		self.pvalue = 0 #tokens[15]
 		self.fdr = 0 #tokens[16]
 		self.mutations = 0
@@ -147,6 +150,9 @@ def sort_key(item):
 
 def sort_key_p(item):
 	return float(item.split('\t')[53][:-1]) #(len(item)-1)
+
+def sort_key_id(item):
+	return float(item.split('\t')[0])
 
 def merge(chunks,key=None):
 	if key is None:
@@ -278,6 +284,7 @@ def batch_sort(input,output,key=None,buffer_size=32000,tempdirs=[]):
 
 def load_data(inputfile, top, sample):
 
+	lookup = dict()
 	data = list()
 	energies = list()
 	extra_energies = list()
@@ -289,15 +296,20 @@ def load_data(inputfile, top, sample):
 			num_lines = num_lines+1
 
 	index = int(float(num_lines)*(float(top)/100))
-
+	
 	with open(inputfile, 'r') as data_in:
 		for line in data_in:
 
-			if(count <= index):
+			if(count < index):
 
 				candidate = RNA_Interaction(line[:-1])
 				candidate.mutations = get_mutation_count(candidate.t_trans_id, candidate.t_start, candidate.t_end)
 				candidate.mutations = candidate.mutations + get_mutation_count(candidate.l_trans_id, candidate.l_start, candidate.l_end)
+
+				if(lookup.get(candidate.t_trans_id) == None):
+					lookup[candidate.t_trans_id] = list()
+				lookup[candidate.t_trans_id].append(len(data))
+
 				data.append(candidate)
 
 				all_genes[candidate.t_gene_id] = True
@@ -319,19 +331,23 @@ def load_data(inputfile, top, sample):
 
 			count = count+1
 
-	return (data, energies, index)
+	return (lookup, data, energies, index)
 
 def compute_pvalues(data, energies, index):
 
 	eng_obs = [float(x) * -1 for x in energies[0:index]]
+
+	if(index == len(energies)): index = 0 #Use whole data as background
+
 	eng_back = [float(x) * -1 for x in energies[index:]]
 
 	fit_alpha, fit_loc, fit_beta=stats.gamma.fit(eng_back)
 
 	pvalues = stats.gamma.sf(eng_obs, fit_alpha, loc=fit_loc, scale=fit_beta)
+	
 	reject, pvalues_corr = fdrcorrection0(pvalues, is_sorted=True)
 
-	for i in xrange(0, (len(data)-1)):
+	for i in xrange(len(data)):
 		data[i].pvalue = pvalues[i]
 		data[i].fdr = pvalues_corr[i]
 
@@ -349,7 +365,7 @@ def get_mutation_count(trans_id, start, end):
 
 	return count
 
-def get_mechanism(candidate):
+def get_mechanism(candidate, apriori):
 
 	#print candidate
 	protein_target = False
@@ -361,54 +377,96 @@ def get_mechanism(candidate):
 	if((candidate.l_peak.start != "NA")):
 		protein_lncRNA = True
 
-	if(protein_target):
-		if( ((int(candidate.rna.t_start) >= int(candidate.t_peak.start)) and  (int(candidate.rna.t_start) <= int(candidate.t_peak.end))) or ((int(candidate.rna.t_end) >= int(candidate.t_peak.start)) and  (int(candidate.rna.t_end) <= int(candidate.t_peak.end))) ):
-			if(protein_lncRNA == True):
-				if(float(candidate.correl.pcor) < 0 and float(candidate.t_peak.correl.pcor) > 0 and float(candidate.l_peak.correl.pcor) < 0 and upregulators.get(candidate.t_peak.gene_id) != None): #I am here
-					return "competitive_downregulation"
-				elif(float(candidate.correl.pcor) > 0 and float(candidate.t_peak.correl.pcor) < 0 and float(candidate.l_peak.correl.pcor) > 0 and downregulators.get(candidate.t_peak.gene_id) != None):
-					return "competitive_upregulation"
+	if(apriori):
+		if(protein_target):
+			if( ((int(candidate.rna.t_start) >= (int(candidate.t_peak.start)-int(OVERLAP_DIST))) and  (int(candidate.rna.t_start) <= (int(candidate.t_peak.end)+int(OVERLAP_DIST)))) or ((int(candidate.rna.t_end) >= (int(candidate.t_peak.start)-int(OVERLAP_DIST))) and  (int(candidate.rna.t_end) <= (int(candidate.t_peak.end)+int(OVERLAP_DIST)))) ):
+				if(protein_lncRNA == True):
+					if(upregulators.get(candidate.t_peak.gene_id) != None and downregulators.get(candidate.l_peak.gene_id) != None):
+						return "competitive_downregulation"
+					elif(downregulators.get(candidate.t_peak.gene_id) != None and upregulators.get(candidate.l_peak.gene_id) != None):
+						return "competitive_upregulation"
+					else:
+						return "nonsense"
 				else:
-					return "nonsense"
-			else:
-				if(float(candidate.correl.pcor) < 0 and float(candidate.t_peak.correl.pcor) > 0 and upregulators.get(candidate.t_peak.gene_id) != None):
-					return "competitive_downregulation"
-				elif(float(candidate.correl.pcor) > 0 and float(candidate.t_peak.correl.pcor) < 0 and downregulators.get(candidate.t_peak.gene_id) != None):
-					return "competitive_upregulation"
+					if(upregulators.get(candidate.t_peak.gene_id) != None):
+						return "competitive_downregulation"
+					elif(downregulators.get(candidate.t_peak.gene_id) != None):
+						return "competitive_upregulation"
+					else:
+						return "nonsense"
+
+			elif(  abs((int(candidate.t_peak.start) + (int(candidate.t_peak.end)-int(candidate.t_peak.start))/2) - (int(candidate.rna.t_start) + (int(candidate.rna.t_end)-int(candidate.rna.t_start))/2)) <= int(LOCAL_DIST)):
+				if(protein_lncRNA == True):
+					if(complexes[candidate.t_peak.gene_id].get(candidate.l_peak.gene_id) != None and downregulators.get(candidate.t_peak.gene_id) != None and downregulators.get(candidate.l_peak.gene_id) != None):
+						return "complex_formation_downregulation"
+					elif(complexes[candidate.t_peak.gene_id].get(candidate.l_peak.gene_id) != None and upregulators.get(candidate.t_peak.gene_id) != None and upregulators.get(candidate.l_peak.gene_id) != None):
+						return "complex_formation_upregulation"
+					else:
+						return "nonsense"
 				else:
-					return "nonsense"
-		else:
-			if(protein_lncRNA == True):
-				if(float(candidate.correl.pcor) < 0 and float(candidate.t_peak.correl.pcor) < 0 and float(candidate.l_peak.correl.pcor) < 0 and complexes[candidate.t_peak.gene_id].get(candidate.l_peak.gene_id) != None):
-					return "complex_formation_downregulation"
-				elif(float(candidate.correl.pcor) > 0 and float(candidate.t_peak.correl.pcor) > 0 and float(candidate.l_peak.correl.pcor) > 0 and complexes[candidate.t_peak.gene_id].get(candidate.l_peak.gene_id) != None):
-					return "complex_formation_upregulation"
-				else:
-					return "nonsense"
-			elif((downregulators.get(candidate.t_peak.gene_id) != None and float(candidate.t_peak.correl.pcor) < 0) or (upregulators.get(candidate.t_peak.gene_id) != None and float(candidate.t_peak.correl.pcor) > 0)):
-				if(float(candidate.correl.pcor) < 0):# and downregulators.get(candidate.t_peak.gene_id) != None):
-					return "de-stabilization"
-				elif(float(candidate.correl.pcor) > 0):# and upregulators.get(candidate.t_peak.gene_id) != None):
-					return "stabilization"
-				else:
-					return "nonsense"
+					return "(de-)stabilization"
 			else:
 				return "nonsense"
+		else:
+			if(protein_lncRNA == True):
+				if(downregulators.get(candidate.l_peak.gene_id) != None):
+					return "localization_downregulation"
+				elif(upregulators.get(candidate.l_peak.gene_id) != None):
+					return "localization_upregulation"
+				else:
+					return "nonsense"
+			else:
+				return "direct_regulation"
 	else:
-		if(protein_lncRNA == True):
-			if(float(candidate.correl.pcor) <= 0 and float(candidate.l_peak.correl.pcor) < 0 and downregulators.get(candidate.l_peak.gene_id) != None):
-				return "localization_downregulation"
-			elif(float(candidate.correl.pcor) >= 0  and float(candidate.l_peak.correl.pcor) > 0 and upregulators.get(candidate.l_peak.gene_id) != None):
-				return "localization_upregulation"
+		if(protein_target):
+			#if( ((int(candidate.rna.t_start) >= int(candidate.t_peak.start)) and  (int(candidate.rna.t_start) <= int(candidate.t_peak.end))) or ((int(candidate.rna.t_end) >= int(candidate.t_peak.start)) and  (int(candidate.rna.t_end) <= int(candidate.t_peak.end))) ):
+			if( ((int(candidate.rna.t_start) >= (int(candidate.t_peak.start)-int(OVERLAP_DIST))) and  (int(candidate.rna.t_start) <= (int(candidate.t_peak.end)+int(OVERLAP_DIST)))) or ((int(candidate.rna.t_end) >= (int(candidate.t_peak.start)-int(OVERLAP_DIST))) and  (int(candidate.rna.t_end) <= (int(candidate.t_peak.end)+int(OVERLAP_DIST)))) ):
+				if(protein_lncRNA == True):
+					if(float(candidate.correl.pcor) < 0 and float(candidate.t_peak.correl.pcor) > 0 and float(candidate.l_peak.correl.pcor) < 0 and upregulators.get(candidate.t_peak.gene_id) != None): #I am here
+						return "competitive_downregulation"
+					elif(float(candidate.correl.pcor) > 0 and float(candidate.t_peak.correl.pcor) < 0 and float(candidate.l_peak.correl.pcor) > 0 and downregulators.get(candidate.t_peak.gene_id) != None):
+						return "competitive_upregulation"
+					else:
+						return "nonsense"
+				else:
+					if(float(candidate.correl.pcor) < 0 and float(candidate.t_peak.correl.pcor) > 0 and upregulators.get(candidate.t_peak.gene_id) != None):
+						return "competitive_downregulation"
+					elif(float(candidate.correl.pcor) > 0 and float(candidate.t_peak.correl.pcor) < 0 and downregulators.get(candidate.t_peak.gene_id) != None):
+						return "competitive_upregulation"
+					else:
+						return "nonsense"
 			else:
-				return "nonsense"
+				if(protein_lncRNA == True):
+					if(float(candidate.correl.pcor) < 0 and float(candidate.t_peak.correl.pcor) < 0 and float(candidate.l_peak.correl.pcor) < 0 and complexes[candidate.t_peak.gene_id].get(candidate.l_peak.gene_id) != None):
+						return "complex_formation_downregulation"
+					elif(float(candidate.correl.pcor) > 0 and float(candidate.t_peak.correl.pcor) > 0 and float(candidate.l_peak.correl.pcor) > 0 and complexes[candidate.t_peak.gene_id].get(candidate.l_peak.gene_id) != None):
+						return "complex_formation_upregulation"
+					else:
+						return "nonsense"
+				elif((downregulators.get(candidate.t_peak.gene_id) != None and float(candidate.t_peak.correl.pcor) < 0) or (upregulators.get(candidate.t_peak.gene_id) != None and float(candidate.t_peak.correl.pcor) > 0)):
+					if(float(candidate.correl.pcor) < 0):# and downregulators.get(candidate.t_peak.gene_id) != None):
+						return "de-stabilization"
+					elif(float(candidate.correl.pcor) > 0):# and upregulators.get(candidate.t_peak.gene_id) != None):
+						return "stabilization"
+					else:
+						return "nonsense"
+				else:
+					return "nonsense"
 		else:
-			if(float(candidate.correl.pcor) < 0):
-				return "direct_downregulation"
-			elif(float(candidate.correl.pcor) > 0):
-				return "direct_upregulation"
+			if(protein_lncRNA == True):
+				if(float(candidate.correl.pcor) <= 0 and float(candidate.l_peak.correl.pcor) < 0 and downregulators.get(candidate.l_peak.gene_id) != None):
+					return "localization_downregulation"
+				elif(float(candidate.correl.pcor) >= 0  and float(candidate.l_peak.correl.pcor) > 0 and upregulators.get(candidate.l_peak.gene_id) != None):
+					return "localization_upregulation"
+				else:
+					return "nonsense"
 			else:
-				return "nonsense"
+				if(float(candidate.correl.pcor) < 0):
+					return "direct_downregulation"
+				elif(float(candidate.correl.pcor) > 0):
+					return "direct_upregulation"
+				else:
+					return "nonsense"
 
 def find_functional_domains(interactions, coor1, coor2, writer, type, bin_size, min_len):
 
@@ -530,14 +588,14 @@ def find_functional_domains(interactions, coor1, coor2, writer, type, bin_size, 
 def main(argv):
 
 	try:
-		opts, args = getopt.getopt(argv,"hi:r:m:c:p:x:",["ifile=","mfile="])#,"ofile="])
+		opts, args = getopt.getopt(argv,"hi:r:m:n:c:p:x:a:",["ifile=","mfile="])#,"ofile="])
 	except getopt.GetoptError:
-		print 'infer.py -i <inputfile> -r <reference> -m <models> -c <cancer> -p <peak-cutoff>'
+		print 'infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <cancer> -p <peak-cutoff> -a <apriori>'
 		sys.exit(2)
 
 	for opt, arg in opts:
 		if opt == '-h':
-			print 'infer.py -i <inputfile> -r <reference> -m <models> -c <cancer> -p <peak-cutoff> -x <top-percent>'
+			print 'infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <cancer> -p <peak-cutoff> -x <top-percent> -a <apriori>'
 			sys.exit()
 		elif opt in ("-i", "--ifile"):
 			inputfile = arg
@@ -545,14 +603,19 @@ def main(argv):
 			ref = arg
 		elif opt in ("-m", "--models"):
 			modelsfile = arg
+		elif opt in ("-n", "--mechanisms"):
+			mechsfile = arg
 		elif opt in ("-c", "--cancer"):
 			cancer_type = arg
 		elif opt in ("-p", "--peak-cutoff"):
 			p_cutoff = arg
 		elif opt in ("-x", "--topX"):
 			topx = arg
-	
-	sampling = 10
+		elif opt in ("-a", "--apriori"):
+			if(arg in ['True', 'true', 'T', 't', '1']):
+				apriori = True
+			else:
+				apriori = False
 
 	#correlationfile = "/home/agawrons/data/net.edges.sig.genes"  
 	#correlationfile = "./data/correlation/{0}.tcga.pearson.sig.genes".format(cancer_type) 
@@ -570,9 +633,12 @@ def main(argv):
 	graphprot_data = dict()
 	correl_lncRNA_data = dict()
 	correl_proteins_data = dict()
-	RR_interactions = list()
-	candidates = list()
 	cur_transcript = None
+	sampling = 10
+
+	if(apriori):
+		topx = 100
+		sampling = 1
 
 	with open(indelsfile, 'r') as indels_in:
 		for line in indels_in:
@@ -583,19 +649,24 @@ def main(argv):
 				indels[tokens[0]] = list()
 			indels[tokens[0]].append(tokens[1:3])
 
+	print "Loading and sorting input file..."
+
 	if(filter(repeatsfile, inputfile, inputfile+".tmp.filter")):
 		batch_sort(inputfile+".tmp.filter", inputfile+".tmp.sort", key=sort_key)
 	else:
 		batch_sort(inputfile, inputfile+".tmp.sort", key=sort_key)
 
-	data, energies, index = load_data(inputfile + ".tmp.sort", topx, sampling)
+	lookup, data, energies, index = load_data(inputfile + ".tmp.sort", topx, sampling)
 
 	os.remove(inputfile+".tmp.filter")
 	os.remove(inputfile+".tmp.sort")
 	
+	lncRNA_ids = data[0].get_lncRNA_id()
 	lncRNA = [data[0].l_trans_id, data[0].l_gene_id, data[0].l_gene_symbol]
 	all_genes[data[0].l_gene_id] = True
 	all_trans[data[0].l_trans_id] = True
+
+	print "Computing RNA-RNA interaction p-values..."
 
 	compute_pvalues(data, energies, index)
 
@@ -606,6 +677,8 @@ def main(argv):
 
 	writer.close()
 	writer = open(outputfile, 'w')
+
+	print "Annotating RNA-RNA interactions..."
 
 	command = "/home/agawronski/bin/mistrvar/sniper/sniper annotate ~/data/GTF/Homo_sapiens.GRCh38.86.gtf " + inputfile + ".tmp.targets " +  inputfile +".tmp.targets.anno 0"
 
@@ -622,6 +695,8 @@ def main(argv):
 
 	os.remove(inputfile+".tmp.targets")
 	os.remove(inputfile+".tmp.targets.anno")
+
+	print "Loading auxiliary files..."
 
 	with open(upregulatorsfile, 'r') as up_in:
 		for line in up_in:
@@ -654,28 +729,34 @@ def main(argv):
 		correl_proteins_data[model] = dict()
 		graphprot_data[model] = dict()
 
-	#print "Loading correlation file..."		
-	with open(correlationfile, 'r') as correl_in:
-		for line in correl_in:
-			tokens = line.split()
-			if(tokens[0] not in all_genes or tokens[1] not in all_genes): continue
+	with open(mechsfile, 'r') as mechs_in:
+		for mech in mechs_in:
+			mech = mech[:-1]
+			mechs.add(mech)
 
-			if(tokens[0] == lncRNA[1]):
-				correl_lncRNA_data[tokens[1]] = Correlation(tokens[2:6])
-			if(tokens[1] == lncRNA[1]):
-				correl_lncRNA_data[tokens[0]] = Correlation(tokens[2:6])
-			for model in models:
-				protein_id = model.split(";")[0]
-				protein_gene = model.split(";")[1]
-				if(tokens[0] == protein_id):
-					correl_proteins_data[model][tokens[1]] = Correlation(tokens[2:6])
-				elif(tokens[1] == protein_id):
-					correl_proteins_data[model][tokens[0]] = Correlation(tokens[2:6])
-				elif(protein_id == "NA"):
-					correl_proteins_data[model][tokens[0]] = Correlation(["0","1","1","NA"])
-					correl_proteins_data[model][tokens[1]] = Correlation(["0","1","1","NA"])
+	if(not apriori):
+		print "Loading correlation file..."		
+		with open(correlationfile, 'r') as correl_in:
+			for line in correl_in:
+				tokens = line.split()
+				if(tokens[0] not in all_genes or tokens[1] not in all_genes): continue
 
-	#print "Loading protein file..."
+				if(tokens[0] == lncRNA[1]):
+					correl_lncRNA_data[tokens[1]] = Correlation(tokens[2:6])
+				if(tokens[1] == lncRNA[1]):
+					correl_lncRNA_data[tokens[0]] = Correlation(tokens[2:6])
+				for model in models:
+					protein_id = model.split(";")[0]
+					protein_gene = model.split(";")[1]
+					if(tokens[0] == protein_id):
+						correl_proteins_data[model][tokens[1]] = Correlation(tokens[2:6])
+					elif(tokens[1] == protein_id):
+						correl_proteins_data[model][tokens[0]] = Correlation(tokens[2:6])
+					elif(protein_id == "NA"):
+						correl_proteins_data[model][tokens[0]] = Correlation(["0","1","1","NA"])
+						correl_proteins_data[model][tokens[1]] = Correlation(["0","1","1","NA"])
+
+	print "Loading protein file..."
 	with open(proteinfile, 'r') as graphprot_in:
 		for line in graphprot_in:
 			tokens = line.split()
@@ -708,69 +789,88 @@ def main(argv):
 								graphprot_data[model][tokens[0]] = list()
 							graphprot_data[model][tokens[0]].append(peak)
 
-	for RR_interaction in data:
+	# for RR_interaction in data:
 
-		if(cur_transcript == None): cur_transcript = RR_interaction.t_trans_id
+	# 	if(cur_transcript == None): cur_transcript = RR_interaction.t_trans_id
 
-		if(RR_interaction.t_trans_id != cur_transcript):
-			gene = RR_interactions[0].t_gene_id
-			target_ids = RR_interactions[0].get_target_id()
-			lncRNA_ids = RR_interactions[0].get_lncRNA_id()
-			top_candidate = None
-			ties = 0
-			for RR_inter in RR_interactions:
-				for protein_target in models:
-					pt_correl = correl_proteins_data[protein_target].get(gene)
-					pt_peaks = graphprot_data[protein_target].get(target_ids)
-					if(protein_target == "NA;NA"):
-						pt_correl = Correlation(["0","1","1","NA"])
-						pt_peaks = list()
-						pt_peaks.append(Protein_Interaction(["NA","NA","NA","NA","0","1","NA"], Correlation(["0","1","1","NA"])))
-					if(pt_correl == None or pt_peaks == None): continue
-					for peak_pt in pt_peaks:
-						for protein_lncRNA in models:
-							pl_correl = correl_proteins_data[protein_lncRNA].get(gene)
-							pl_peaks = graphprot_data[protein_lncRNA].get(lncRNA_ids)
-							if(protein_lncRNA == "NA;NA"): 
-								pl_correl = Correlation(["0","1","1","NA"])
-								pl_peaks = list()
-								pl_peaks.append(Protein_Interaction(["NA","NA","NA","NA","0","1","NA"], Correlation(["0","1","1","NA"])))
-							if(pl_correl == None or pl_peaks == None or (protein_target == protein_lncRNA and protein_target != "NA;NA")): continue
-							for peak_pl in pl_peaks: 
-								#if(float(peak_pl.pvalue) > float(p_cutoff) and peak_pl.start != "NA"): continue
-								candidate = Candidate(RR_inter)
-								candidate.correl = (correl_lncRNA_data.get(gene, Correlation(["0","1","1","NA"])))#[gene])
-								candidate.t_peak = peak_pt
-								candidate.l_peak = peak_pl
+	# 	if(RR_interaction.t_trans_id != cur_transcript):
 
-								mechanism = get_mechanism(candidate)
-								
-								if(mechanism != "nonsense"):
+		# gene = RR_interactions[0].t_gene_id
+		# target_ids = RR_interactions[0].get_target_id()
+		# lncRNA_ids = RR_interactions[0].get_lncRNA_id()
 
-									candidate.mechanism = mechanism
-									pvalues = candidate.get_pvalues()
+	print "Inferring mechanisms..."
+	for key in lookup.keys():
 
-									if(len(pvalues) > 1): 
-										xsq, p = stats.combine_pvalues(np.array(pvalues), method='fisher', weights=None)
-										candidate.joint_pvalue = p
-									else:
-										candidate.joint_pvalue = pvalues[0]
+		indices = lookup[key]
 
-									if(top_candidate == None or float(candidate.joint_pvalue) < float(top_candidate.joint_pvalue)):
-										top_candidate = candidate
-										ties = 0
-									elif(top_candidate != None and float(candidate.joint_pvalue) == float(top_candidate.joint_pvalue)):
-										ties += 1
-								#print candidate
-			if(top_candidate != None):
-				writer.write(top_candidate.toString() + "\n")
-			#print ties
+		gene = data[indices[0]].t_gene_id
+		target_ids = data[indices[0]].get_target_id()
+		top_candidate = None
 
-			cur_transcript = RR_interaction.t_trans_id
-			RR_interactions = list()
-			candidates = list()
+		for index in indices:
 
-		RR_interactions.append(RR_interaction)
+			RR_inter = data[index]
+			
+#			for RR_inter in RR_interactions:
+			for protein_target in models:
+				pt_correl = correl_proteins_data[protein_target].get(gene)
+				pt_peaks = graphprot_data[protein_target].get(target_ids)
+				if(protein_target == "NA;NA"):
+					pt_correl = Correlation(["0","1","1","NA"])
+					pt_peaks = list()
+					pt_peaks.append(Protein_Interaction(["NA","NA","NA","NA","0","1","NA"], Correlation(["0","1","1","NA"])))
+				if((not apriori and (pt_correl == None)) or pt_peaks == None): continue
+				#if(pt_correl == None or pt_peaks == None): continue
+				for peak_pt in pt_peaks:
+					#print peak_pt.gene_id
+					for protein_lncRNA in models:
+						pl_correl = correl_proteins_data[protein_lncRNA].get(gene)
+						pl_peaks = graphprot_data[protein_lncRNA].get(lncRNA_ids)
+						if(protein_lncRNA == "NA;NA"): 
+							pl_correl = Correlation(["0","1","1","NA"])
+							pl_peaks = list()
+							pl_peaks.append(Protein_Interaction(["NA","NA","NA","NA","0","1","NA"], Correlation(["0","1","1","NA"])))
+						if((not apriori and (pl_correl == None or (protein_target == protein_lncRNA and protein_target != "NA;NA"))) or pl_peaks == None): continue
+						#if(pl_correl == None or (protein_target == protein_lncRNA and protein_target != "NA;NA") or pl_peaks == None): continue
+						for peak_pl in pl_peaks: 
+						
+							#if(float(peak_pl.pvalue) > float(p_cutoff) and peak_pl.start != "NA"): continue
+							candidate = Candidate(RR_inter)
+							candidate.correl = (correl_lncRNA_data.get(gene, Correlation(["0","1","1","NA"])))#[gene])
+							candidate.t_peak = peak_pt
+							candidate.l_peak = peak_pl
+
+							mechanism = get_mechanism(candidate, apriori)
+							
+							if(mechanism != "nonsense" and mechanism in mechs):
+
+								candidate.mechanism = mechanism
+								pvalues = candidate.get_pvalues()
+
+								if(len(pvalues) > 1): 
+									xsq, p = stats.combine_pvalues(np.array(pvalues), method='stouffer', weights=None)
+									candidate.joint_pvalue = p
+								else:
+									candidate.joint_pvalue = pvalues[0]
+
+								# if(candidate.rna.t_trans_id == "ENST00000612010"):
+								# 	print pvalues
+								# 	print str(candidate.rna.E) + " " + str(candidate.rna.fdr) + " " + str(candidate.joint_pvalue)
+
+								if(top_candidate == None or float(candidate.joint_pvalue) < float(top_candidate.joint_pvalue)):
+									top_candidate = candidate
+									#print "top: " + str(top_candidate.joint_pvalue)
+
+								#if(apriori): writer.write(candidate.toString() + "\n")
+									
+		if(top_candidate != None):# and not apriori):
+			writer.write(top_candidate.toString() + "\n")
+
+		# 	cur_transcript = RR_interaction.t_trans_id
+		# 	RR_interactions = list()
+
+		# RR_interactions.append(RR_interaction)
 
 	writer.close()
 	batch_sort(outputfile, (outputfile + ".sort"), key=sort_key_p)
@@ -780,12 +880,13 @@ def main(argv):
 	#= Domain Analysis
 	#==================================
 
+	print "Predicting functional domains..."
+
 	writer = open(outputfiledomains, 'w')
 
 	find_functional_domains(data, "l_start", "l_end", writer, "RNA-RNA", 1, 20)
 
 	peaks = list()
-	lncRNA_ids = RR_interactions[0].get_lncRNA_id()
 
 	for model in models:
 		if(model != "NA;NA"):
