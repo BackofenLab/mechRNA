@@ -23,6 +23,7 @@ class pipeline:
 	intarna_pvalues  = "Rscript " + os.path.dirname(os.path.realpath(__file__)) + "/bin/intarna_pvals_gamma.R"
 	inference  = "python " + os.path.dirname(os.path.realpath(__file__)) + "/bin/infer.py"
 	workdir  = os.path.dirname(os.path.realpath(__file__))
+	datadir  = os.path.dirname(os.path.realpath(__file__)) + "/data/"
 	# example usage for help
 	example  = "\tTo create a new project: specify (1) project name and (2) lncRNA sequence\n"
 	example += "\t$ ./mechrna.py -p my_project -l my_rna.fa\n"	
@@ -57,6 +58,14 @@ def command_line_process():
 		metavar='reference',
 		help='"GRCh37.75" or "GRCh38.86"'
 	)
+	parser.add_argument('--correlation','-c',
+		metavar='correlation',
+		help="File with correlation data. See ./data/correlation/ for availible data.",
+	)
+	parser.add_argument('--apriori','-a',
+		action='store_true',
+		help='Enables hypothesis-driven mode that uses only the user specified a priori information and disables use of correlations.',
+	)
 	parser.add_argument('--targets','-T',
 		metavar='targets',
 		help='File with ensembl gene IDs'
@@ -73,10 +82,6 @@ def command_line_process():
 		type=int,
 		metavar='topX',
 		help="Top x percent of IntaRNA predictions to retain for further analysis. (default: 2)",
-	)
-	parser.add_argument('--cancer','-c',
-		metavar='cancer',
-		help="Cancer type of interest. Supported: prostate, meso.peri (default: prostate)",
 	)
 	parser.add_argument('--peak-cutoff','-P',
 		type=float,
@@ -98,10 +103,15 @@ def command_line_process():
 		metavar='suboptimals',
 		help="Number of suboptimals to compute. (default: 4)",
 	)
-	parser.add_argument('--max-len','-m',
+	parser.add_argument('--tRegionLenMax','-mt',
 		type=int,
-		metavar='max_len',
-		help="Maximum accessible transcript region. (default: 1000)",
+		metavar='max_t_len',
+		help="Maximum length of accessible transcript region. (default: 1500)",
+	)
+	parser.add_argument('--qRegionLenMax','-mq',
+		type=int,
+		metavar='max_q_len',
+		help="Maximum length of accessible query (lncRNA) region. (default: disabled)",
 	)
 	parser.add_argument('--resume',
 		nargs='?',
@@ -309,17 +319,35 @@ def IsJobExpired( filename, PBS_TIME):
 #############################################################################################
 ### generate scripts to merge IntaRNA output when users run multiple workers
 def generate_merge_script( config, num_worker ):
+
 	appsdir  = os.path.dirname(os.path.realpath(__file__))
 	worker_prefix   = "{0}/jobs/intarna".format( pipeline.workdir )
 	output_prefix   = "{0}/{1}".format( pipeline.workdir, config.get("project", "name") )
-	with open( pipeline.workdir + "/merge_output.sh", 'w' ) as f_script:
-		f_script.write("#!/bin/bash\n")
-		cmd = 'FILE={0}.results\nif [ -f $FILE ]; then rm -f ${{FILE}}; fi & touch ${{FILE}}\n'.format( output_prefix )
-		f_script.write("#!/bin/bash\n{0}\n".format(cmd))
-		for i in xrange( num_worker):
-			f_script.write("part_info={0}_{1}; if [ -f ${{part_info}} ]; then cat ${{part_info}} | grep -E -v 'id1|INFO|WARN' | sed \"s,\x1B\[[0-9;]*[a-zA-Z],,g\" >> ${{FILE}}; else printf \"Missing File %s\\n\" ${{part_info}};fi\n".format(worker_prefix, i))
-	st = os.stat((pipeline.workdir + "/merge_output.sh"))
-	os.chmod((pipeline.workdir + "/merge_output.sh"), st.st_mode | stat.S_IEXEC)
+	job_file 		= "{0}/jobs.sh".format(pipeline.workdir )
+	script_file   	= "{0}/run.sh".format(pipeline.workdir )
+	engine_mode 	= config.get("intarna", "engine-mode")
+
+	if(engine_mode == "sge" or engine_mode == "pbs"):
+		with open( pipeline.workdir + "/merge_output.sh", 'w' ) as f_script:
+			f_script.write("#!/bin/bash\n")
+			cmd = 'FILE={0}.results\nif [ -f $FILE ]; then rm -f ${{FILE}}; fi & touch ${{FILE}}\n'.format( output_prefix )
+			f_script.write("{0}\n".format(cmd))
+			for i in xrange( num_worker):
+				f_script.write("part_info={0}_{1}; if [ -f ${{part_info}} ]; then cat ${{part_info}} | grep -E -v 'id1|INFO|WARN' | sed \"s,\x1B\[[0-9;]*[a-zA-Z],,g\" >> ${{FILE}}; else printf \"Missing File %s\\n\" ${{part_info}};fi\n".format(worker_prefix, i))
+		f_script.close()
+		st = os.stat((pipeline.workdir + "/merge_output.sh"))
+		os.chmod((pipeline.workdir + "/merge_output.sh"), st.st_mode | stat.S_IEXEC)
+	else:
+		with open( script_file, 'w' ) as f_script:
+			f_script.write("#!/bin/bash\n")
+			cmd = "cat {0} | xargs -I CMD --max-procs={1} bash -c CMD\n".format(job_file, num_worker )
+			cmd += 'FILE={0}.results\nif [ -f $FILE ]; then rm -f ${{FILE}}; fi & touch ${{FILE}}\n'.format( output_prefix )
+			f_script.write("{0}\n".format(cmd))
+			for i in xrange( num_worker):
+				f_script.write("part_info={0}_{1}; if [ -f ${{part_info}} ]; then cat ${{part_info}} | grep -E -v 'id1|INFO|WARN' | sed \"s,\x1B\[[0-9;]*[a-zA-Z],,g\" >> ${{FILE}}; else printf \"Missing File %s\\n\" ${{part_info}};fi\n".format(worker_prefix, i))
+		f_script.close()
+		st = os.stat(script_file)
+		os.chmod(script_file, st.st_mode | stat.S_IEXEC)
 
 #############################################################################################
 ########## Clean stage file for resuming
@@ -386,8 +414,7 @@ def intarna(config ):
 	complete_file = "{0}/stage/03.intarna.{1}.finished".format(workdir, worker_id);
 	success_message	 = "completed"
 	#freeze_arg    = "{0}\t{1}\t{2}\t{3}\t{4}".format(worker_id, rng, config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"))  
-	#cmd           = pipeline.intarna +" --tAccL {0} --tAccW {1} --qAccL {2} --qAccW {3} -n {4} -t {5} -q {6} --tRange {7} --outMode=C --outCsvCols 'id1,id2,subseq1,subseq2,subseqDP,start1,end1,start2,end2,hybridDP,Pu1,Pu2,E_init,E_loops,E_dangleL,E_dangleR,E_endL,E_endR,seedStart1,seedEnd1,seedStart2,seedEnd2,seedE,seedED1,seedED2,seedPu1,seedPu2,ED1,ED2,E' > {8}".format(config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"), target_file, lncRNA_file, rng, output_prefix)
-	cmd           = pipeline.intarna +" --tAccL {0} --tAccW {1} --qAccL {2} --qAccW {3} -n {4} -t {5} -q {6} --tRange {7} --outMode=C --outCsvCols 'id1,id2,start1,end1,start2,end2,E_init,E_loops,E_dangleL,E_dangleR,E_endL,E_endR,ED1,ED2,E' > {8}".format(config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"), target_file, lncRNA_file, rng, output_prefix)
+	cmd           = pipeline.intarna +" --tAccL {0} --tAccW {1} --qAccL {2} --qAccW {3} -n {4} -t {5} -q {6} --tRegionLenMax {7} --qRegionLenMax {8} --tRange {9} --outMode=C --outCsvCols 'id1,id2,start1,end1,start2,end2,E_init,E_loops,E_dangleL,E_dangleR,E_endL,E_endR,ED1,ED2,E' > {10}".format(config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"), target_file, lncRNA_file, config.get("intarna","tRegionLenMax"), config.get("intarna","qRegionLenMax"), rng, output_prefix)
 	run_cmd       = not ( os.path.isfile(complete_file) and success_message in open(complete_file).read()) 
 	shell( msg, run_cmd, cmd, control_file, complete_file, success_message)
 	
@@ -404,7 +431,7 @@ def inference(config):
 	control_file  = "{0}/log/04.inference.log".format(workdir);
 	complete_file = "{0}/stage/04.inference.finished".format(workdir);
 	freeze_arg    = ""
-	cmd           = pipeline.inference + ' -i {0} -r {1} -m {2} -n {3} -c {4} -p {5} -x {6} -a {7}'.format(input_file, config.get("project", "reference"), models, mechs, config.get("project", "cancer"), config.get("project", "peak-cutoff"), config.get("project", "topX"), config.get("project", "apriori")) 
+	cmd           = pipeline.inference + ' -i {0} -r {1} -m {2} -n {3} -c {4} -p {5} -x {6} -a {7}'.format(input_file, config.get("project", "reference"), models, mechs, config.get("project", "correlation"), config.get("project", "peak-cutoff"), config.get("project", "topX"), config.get("project", "apriori")) 
 	run_cmd       = not ( os.path.isfile(complete_file) and freeze_arg in open(complete_file).read()) 
 
 	if ( run_cmd ):
@@ -440,15 +467,12 @@ def assign_worker(config):
 		log("Assign jobs to independent workers...")
 		with open (control_file, 'a') as ctr_file:
 			ctr_file.write("Find {0} sequences\n".format(nj))
-		#maxjobs = int( config.get("project", "num-worker") )
-		#if (maxjobs < 1):# sanity checking
-		#	maxjobs = 1 
 	
 		if os.path.isfile(control_file ):
 			os.remove( control_file)
 
-		#with open(output_file, 'w') as fj:
-		#	fj.write("#!/bin/bash\n")
+		with open('{0}'.format(output_file), 'w') as fj:
+			fj.write("#!/bin/bash\n")
 		
 		for i in xrange(maxjobs):
 
@@ -456,45 +480,42 @@ def assign_worker(config):
 			if( not os.path.isfile(complete_file)):
 				# worker i
 				st = int(math.ceil(float(nj) / float(maxjobs))) * i
-				if st >= nj:
-					maxjobs = i
-					break
-				ed = min(nj, ((int(math.ceil(float(nj) / float(maxjobs)))) * (i + 1)-1))
-				rng = '{0}-{1}'.format(st, ed)
-				cmd = pipeline.mechrna + " -p {0} -l {1} --range {2} --worker-id {3} --num-worker 1 --resume intarna \n".format( pipeline.workdir, lncRNA_file, rng, i )
-				if "sge" == config.get("intarna", "engine-mode"):
-					filename = '{0}/pbs/intarna_{1}.sh'.format(workdir, i)
-					with open(filename, 'w') as fsge:
-						pbs_log=pipeline.workdir+'/log/intarna_{0}.o'.format(i)
-						pbs_err= pipeline.workdir+'/log/intarna_{0}.e'.format(i)
-						worker_cmd = "qsub -cwd -V -b y -N {0}_{1} -pe ncpus {2} -l h_vmem={3} -l h_rt={4} -l h_stack=8M -o {5} -e {6} ".format( project_name, i, config.get("intarna", "job-cpus"), config.get("intarna", "job-memory"), config.get("intarna","job-time"), pbs_log, pbs_err) +  cmd;
-						fsge.write("#!/bin/bash\n")
-						fsge.write(worker_cmd)
-						st = os.stat(filename)
-						os.chmod(filename, st.st_mode | stat.S_IEXEC)
-				elif "pbs" == config.get("intarna", "engine-mode"):
-					with open('{0}/pbs/intarna_{1}.pbs'.format(workdir, i), 'w') as fpbs:
-						fpbs.write("#!/bin/bash\n")
-						fpbs.write("#PBS -l nodes=1:ppn={0},vmem={1},walltime={2}\n".format(config.get("intarna", "job-cpus"), config.get("intarna", "job-memory"), config.get("intarna", "job-time")) ) 
-						fpbs.write("#PBS -N {0}_{1}\n".format(project_name, i))
-						fpbs.write("cd $PBS_O_WORKDIR\n")
-						fpbs.write("{0}".format(cmd))
-					worker_cmd = "qsub {0}/pbs/{1}.pbs\n".format(workdir,i)
-				else: # local machine
-					worker_cmd = cmd + "\n"
-					with open(output_file, 'w') as fj:
-						fj.write("#!/bin/bash\n")
-						fj.write(worker_cmd)
-						st = os.stat(output_file)
-						os.chmod(output_file, st.st_mode | stat.S_IEXEC)
-	
-				#with open('{0}'.format(output_file), 'a') as fj:
-				#	fj.write(worker_cmd)
 
-				with open (control_file, 'a') as ctr_file:
-					ctr_file.write("Finish worker {0}\n".format(i))
-				#log("Job {0}...".format(i))
-				#logOK()
+				if st < nj:
+					ed = min(nj-1, ((int(math.ceil(float(nj) / float(maxjobs)))) * (i + 1)-1))
+					rng = '{0}-{1}'.format(st+1, ed+1)
+					cmd = "python " + pipeline.mechrna + " -p {0} -l {1} --range {2} --worker-id {3} --num-worker 1 --resume intarna \n".format( pipeline.workdir, lncRNA_file, rng, i )
+					if "sge" == config.get("intarna", "engine-mode"):
+						filename = '{0}/pbs/intarna_{1}.sh'.format(workdir, i)
+						with open(filename, 'w') as fsge:
+							pbs_log=pipeline.workdir+'/log/intarna_{0}.o'.format(i)
+							pbs_err= pipeline.workdir+'/log/intarna_{0}.e'.format(i)
+							worker_cmd = "qsub -cwd -V -b y -N {0}_{1} -pe ncpus {2} -l h_vmem={3} -l h_rt={4} -l h_stack=8M -o {5} -e {6} ".format( project_name, i, config.get("intarna", "job-cpus"), config.get("intarna", "job-memory"), config.get("intarna","job-time"), pbs_log, pbs_err) +  cmd;
+							fsge.write("#!/bin/bash\n")
+							fsge.write(worker_cmd)
+							st = os.stat(filename)
+							os.chmod(filename, st.st_mode | stat.S_IEXEC)
+					elif "pbs" == config.get("intarna", "engine-mode"):
+						with open('{0}/pbs/intarna_{1}.pbs'.format(workdir, i), 'w') as fpbs:
+							fpbs.write("#!/bin/bash\n")
+							fpbs.write("#PBS -l nodes=1:ppn={0},vmem={1},walltime={2}\n".format(config.get("intarna", "job-cpus"), config.get("intarna", "job-memory"), config.get("intarna", "job-time")) ) 
+							fpbs.write("#PBS -N {0}_{1}\n".format(project_name, i))
+							fpbs.write("cd $PBS_O_WORKDIR\n")
+							fpbs.write("{0}".format(cmd))
+						worker_cmd = "qsub {0}/pbs/{1}.pbs\n".format(workdir,i)
+					else: # local machine
+						worker_cmd = cmd
+		
+					with open('{0}'.format(output_file), 'a') as fj:
+						fj.write(worker_cmd)
+
+					with open (control_file, 'a') as ctr_file:
+						ctr_file.write("Finish worker {0}\n".format(i))
+				else:
+					maxjobs = i
+					config.set("project","num-worker",maxjobs)
+					break
+
 			else:
 				log("Job {0}...".format(i))
 				logWAR()
@@ -503,8 +524,6 @@ def assign_worker(config):
 		with open (complete_worker_file, 'w') as suc_file:
 			suc_file.write("{0}".format( freeze_arg ))
 			logOK()
-		# to re-run jobs
-		#clean_state( 1, workdir, config )
 
 ###############################################################################################			
 ########### submitting IntaRNA jobs
@@ -549,11 +568,10 @@ def run_command(config, force=False):
 
 	engine_mode = config.get("intarna", "engine-mode")
 	if ( ( "pbs" !=  engine_mode) and ( ( "sge" ) != engine_mode) ):
-		num_parallel = 1
-		msg = "Running prediction with {0} parallel tasks".format( num_parallel )
-		script_file =  pipeline.workdir+ "/jobs.sh"
-		cmd = "cat {0} | xargs -I CMD --max-procs={1} bash -c CMD ".format(script_file, num_parallel )
-		freeze_arg=""
+		num_parallel = config.get("project", "num-worker")
+		msg = "Running prediction with {0} parallel task(s)".format(num_parallel)
+		cmd = pipeline.workdir+ "/run.sh" 
+		freeze_arg    = "{0}\t{1}\t{2}\t{3}".format(num_parallel, config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"))
 		control_file  = "{0}/log/normal.log".format( pipeline.workdir )
 		complete_file = "{0}/stage/normal.finished".format( pipeline.workdir)
 		run_cmd       = not ( os.path.isfile(complete_file) and freeze_arg in open(complete_file).read()) 
@@ -565,30 +583,30 @@ def run_command(config, force=False):
 		submit_intarna_jobs(config)
 		logOK()
 
-	jobs_finished = False;
-	maxjobs = int( config.get("project", "num-worker") )
-	if (maxjobs < 1):# sanity checking
-		maxjobs = 1 
+		jobs_finished = False;
+		maxjobs = int( config.get("project", "num-worker") )
+		if (maxjobs < 1):# sanity checking
+			maxjobs = 1 
 
-	while(not jobs_finished):
-		time.sleep(60)
-		jobs_finished = True
-		print ".",
-		for i in xrange(maxjobs):
-			complete_file = "{0}/stage/03.intarna.{1}.finished".format(pipeline.workdir, i);
-			pbs_log=pipeline.workdir+'/log/intarna_{0}.o'.format(i)
-			pbs_err= pipeline.workdir+'/log/intarna_{0}.e'.format(i)
+		while(not jobs_finished):
+			time.sleep(60)
+			jobs_finished = True
+			print ".",
+			for i in xrange(maxjobs):
+				complete_file = "{0}/stage/03.intarna.{1}.finished".format(pipeline.workdir, i);
+				pbs_log=pipeline.workdir+'/log/intarna_{0}.o'.format(i)
+				pbs_err= pipeline.workdir+'/log/intarna_{0}.e'.format(i)
 
-			st=status_check(complete_file,success_message,pbs_err,pbs_log,config.get("intarna", "job-time"))
-			st=apply_status_check(st,False,"")
+				st=status_check(complete_file,success_message,pbs_err,pbs_log,config.get("intarna", "job-time"))
+				st=apply_status_check(st,False,"")
 
-			if not st == 1:
-				jobs_finished = False
+				if not st == 1:
+					jobs_finished = False
 
-	msg = "Merging {0} output files".format(config.get("project", "num-worker"))
-	cmd = "{0}/merge_output.sh".format(pipeline.workdir)
-	shell( msg, True, cmd)
-	logOK()
+		msg = "Merging {0} output files".format(config.get("project", "num-worker"))
+		cmd = "{0}/merge_output.sh".format(pipeline.workdir)
+		shell( msg, True, cmd)
+		logOK()
 
 	inference(config)
 
@@ -628,13 +646,27 @@ def symlink_name(src, dest, filename ):
 	#abs_src= os.path.abspath(src) + "/" + basename
 	#os.symlink(src, dest)
 	os.symlink(os.path.abspath(src), dest)
+
+#############################################################################################
+######### link the absolute path of src in dest with identical filename
+def symlink_dir(src, dest):
+	if src == '':
+		return
+	if not os.path.isdir(src):
+		print "[ERROR] Input dir {0} does not exist".format(src)
+		exit(1)
+	#do something
+	basename = os.path.basename(os.path.normpath(src))
+	dest=os.path.abspath(dest)+'/'+basename
+	os.symlink(os.path.abspath(src), dest)
+
 #############################################################################################
 ##########	Make sure the project is successfully built
 def is_exec(f):
 	return os.path.isfile(f) and os.access(f, os.X_OK)
 
 def check_binary_preq():
-	execs = ['IntaRNA', 'Rscript']#, 'perl']
+	execs = ['IntaRNA']#, 'Rscript']#, 'perl']
 	log( "Checking binary pre-requisites... ")
 	for exe in execs:
 		local_exe = os.path.dirname(os.path.realpath(__file__)) + "/bin/" + exe
@@ -650,9 +682,9 @@ def check_binary_preq():
 
 		if(not installed):
 			if(exe == 'IntaRNA'):
-				print "[ERROR] File {0} cannot be executed. Please use 'make' to build the required binaries.".format(exe)
+				print "[ERROR] {0} cannot be executed. Please use 'make' to build the required binary and move it into the \"bin\" directory.".format(exe)
 				logFAIL()
-				logln ("File {0} cannot be executed. Please use 'make' to build the required binaries.".format(exe) )
+				logln ("{0} cannot be executed. Please use 'make' to build the required binary.".format(exe) )
 			else:
 				print "[ERROR] File {0} is not installed in system PATH or in {1}".format(exe, os.path.dirname(os.path.realpath(__file__)) + "/bin/")
 				logFAIL()
@@ -685,8 +717,8 @@ def check_input_preq( config ):
 ########## Initialze mrsfast parameters for before creating project folder
 def initialize_config_graphprot( config, args):
 	config.add_section("graphprot")
-	config.set("graphprot", "rbps", str( args.rbps ) if args.rbps != None else  "{0}/data/models.list".format(os.path.dirname(os.path.realpath(__file__))))
-	config.set("graphprot", "model-dir", "{0}/data/models".format(os.path.dirname(os.path.realpath(__file__))))
+	config.set("graphprot", "rbps", str( args.rbps ) if args.rbps != None else  "data/models.list".format(pipeline.datadir))
+	config.set("graphprot", "model-dir", "{0}/models".format(pipeline.datadir))
 	return config #TODO structue vs sequnence model
 
 #############################################################################################
@@ -697,10 +729,10 @@ def initialize_config_intarna( config, args):
 	config.set("intarna", "max-loop", str( args.max_loop ) if args.max_loop != None else  "150")
 	config.set("intarna", "window", str( args.window ) if args.window != None else "200")
 	config.set("intarna", "suboptimals", str( args.suboptimals ) if args.suboptimals !=None else "4")
-	config.set("intarna", "max-len", str( args.max_len ) if args.max_len !=None else "1000")
-	config.set("intarna", "targets", "{0}/data/refs/ensembl.{1}.ncrna.cdna.40.full".format(os.path.dirname(os.path.realpath(__file__)), config.get("project", "reference")))
-#	config.set("intarna", "targets", "{0}/data/test.targets.fa".format(os.path.dirname(os.path.realpath(__file__))))
-	config.set("intarna", "mechs", str( args.mechs ) if args.mechs != None else  "{0}/data/mechs.list".format(os.path.dirname(os.path.realpath(__file__))))
+	config.set("intarna", "tRegionLenMax", str( args.tRegionLenMax ) if args.tRegionLenMax !=None else "1500")
+	config.set("intarna", "qRegionLenMax", str( args.qRegionLenMax ) if args.qRegionLenMax !=None else "0")
+	config.set("intarna", "targets", "data/refs/ensembl.{0}.ncrna.cdna.40.full".format(config.get("project", "reference")))
+	config.set("intarna", "mechs", str( args.mechs ) if args.mechs != None else  "data/mechs.list".format(pipeline.datadir))
 	config.set("intarna","engine-mode",args.mode if args.mode != None else "normal")
 	config.set("intarna","range", str( args.range ) if args.range !=None else "-1" )
 	config.set("intarna","worker-id", str(args.worker_id) if args.worker_id != None else "-1")
@@ -757,11 +789,12 @@ def check_project_preq():
 		config.add_section("project")
 		config.set("project", "name", project_name)
 		config.set("project", "lncRNA", args.lncRNA)
-		config.set("project", "reference", str(args.reference) if args.reference != None else "GRCh37.75") 
+		config.set("project", "reference", str(args.reference) if args.reference != None else "GRCh37.75")
+		config.set("project", "apriori", str(args.apriori))
 		config.set("project", "targets", str(args.targets) if args.targets != None else None) 
 		config.set("project", "num-worker", str(args.num_worker) if args.num_worker != None else "1" )
 		config.set("project", "topX", args.topX if args.topX != None else "2" )
-		config.set("project", "cancer", str(args.cancer) if args.cancer != None else "prostate" )
+		config.set("project", "correlation", str(args.correlation) if args.correlation != None else "None" )
 		config.set("project", "peak-cutoff", args.peak_cutoff if args.peak_cutoff != None else "0.01" )
 
 		# Parameters for other parts in the pipeline
@@ -777,12 +810,13 @@ def check_project_preq():
 		mkdir_p(workdir +'/log');
 		mkdir_p(workdir +'/pbs');
 		mkdir_p(workdir +'/stage');
+		symlink_dir(pipeline.datadir,  workdir)
 
 		# Generate targets file
 		geneIDsfile = config.get("project", "targets") 
 		reffile = config.get("intarna", "targets")
 		geneIDs = set()
-
+		
 		if(geneIDsfile != None):
 			writer = open(pipeline.workdir+"/targets.fa", 'w')
 			with open(geneIDsfile, 'r') as geneIDs_in:
@@ -798,18 +832,20 @@ def check_project_preq():
 							writer.write(next(ref_in))
 			writer.close()
 			config.set("intarna", "targets", pipeline.workdir+"/targets.fa")
-			config.set("project", "apriori", "True")
-		else:
-			symlink(config.get("intarna", "targets"),  workdir)
-			config.set("project", "apriori", "False")
-			
-		config.set("intarna", "targets", os.path.basename(config.get("intarna", "targets")))
+			config.set("intarna", "targets", os.path.basename(config.get("intarna", "targets")))
 
-		symlink(config.get("intarna","mechs"),  workdir)
-		config.set("intarna", "mechs", os.path.basename(config.get("intarna", "mechs")))
+		if (not (config.get("project", "apriori") == "True") and not os.path.isfile(config.get("project", "correlation"))):
+			logFAIL()
+			logln("Correlation file not found. Please specify correlation file or enable --apriori option.")
+			exit(1)
 
-		symlink(config.get("graphprot","rbps"),  workdir)
-		config.set("graphprot", "rbps", os.path.basename(config.get("graphprot", "rbps")))
+		if args.mechs != None:
+			symlink(config.get("intarna","mechs"),  workdir)
+			config.set("intarna", "mechs", os.path.basename(config.get("intarna", "mechs")))
+
+		if args.rbps != None:
+			symlink(config.get("graphprot","rbps"),  workdir)
+			config.set("graphprot", "rbps", os.path.basename(config.get("graphprot", "rbps")))
 
 		symlink(config.get("project", "lncRNA"),  workdir)
 		config.set("project", "lncRNA", os.path.basename(config.get("project", "lncRNA")))

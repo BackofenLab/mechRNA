@@ -9,6 +9,7 @@ from statsmodels.stats.multitest import multipletests, _ecdf as ecdf, fdrcorrect
 from heapq import heapify, heappop, heappush
 from itertools import islice, cycle
 from tempfile import gettempdir
+
 #from subprocess import call
 
 indels = dict()
@@ -24,12 +25,6 @@ OVERLAP_DIST = 50
 rna_inter_members = ["t_trans_id","t_gene_id","t_gene_symbol","l_trans_id","l_gene_id","l_gene_symbol","t_start","t_end","l_start","l_end","E_init","E_loops","E_dangleL","E_dangleR","E_endL","E_endR","ED1","ED2","E","pvalue","fdr","mutations","anno1","anno2"]
 protein_inter_members = ["start", "end", "gene_id", "gene_symbol", "peak", "pvalue", "pid", "mutations"]
 correlation_members = ["pcor", "pvalue", "dir_pvalue", "dir"]
-
-#TODO: should use a user-provided home directory path
-upregulatorsfile = "./data/upregulators"
-downregulatorsfile = "./data/downregulators"
-complexesfile = "./data/complexes"
-cancerfile = "./data/cancer.genes"
 
 #######################################################
 #
@@ -207,7 +202,7 @@ def filter(repeatsfile, inputfile, outputfile):
 				l = l + 1
 
 				if(tokens[0] == trans_id):
-					print tokens[0] + " " + trans_id + " " + tokens[1] + " " + tokens[2] + " " + str(l)
+					print "Masking: " + tokens[1] + " " + tokens[2]
  					repeats.append(tokens[1:3])
 				elif(len(repeats) > 0):
 					break
@@ -468,7 +463,7 @@ def get_mechanism(candidate, apriori):
 				else:
 					return "nonsense"
 
-def find_functional_domains(interactions, coor1, coor2, writer, type, bin_size, min_len):
+def find_functional_domains(cancerfile, interactions, coor1, coor2, writer, type, bin_size, min_len):
 
 	counts = dict()
 	genes_back = set()
@@ -480,9 +475,9 @@ def find_functional_domains(interactions, coor1, coor2, writer, type, bin_size, 
 	max_bin = 0
 	start = -1
 
-	with open(cancerfile, 'r') as data_in:
-		for gene in data_in:
-			cancer_genes[gene[:-1]] = True
+	# with open(cancerfile, 'r') as data_in:
+	# 	for gene in data_in:
+	# 		cancer_genes[gene[:-1]] = True
 
 	for inter in interactions:
 
@@ -505,11 +500,11 @@ def find_functional_domains(interactions, coor1, coor2, writer, type, bin_size, 
 			else:
 				w_count_back = w_count_back + 1
 
-	for gene in genes_back:
-		if(gene in cancer_genes):
-			c_count_back = c_count_back + 1
-		else:
-			n_count_back = n_count_back + 1
+	# for gene in genes_back:
+	# 	if(gene in cancer_genes):
+	# 		c_count_back = c_count_back + 1
+	# 	else:
+	# 		n_count_back = n_count_back + 1
 
 	for i in xrange(0, len(counts)):
 		if(i not in counts):
@@ -564,18 +559,19 @@ def find_functional_domains(interactions, coor1, coor2, writer, type, bin_size, 
 					c_count = 0
 					n_count = 0
 
-					for gene in genes:
-						if(gene in cancer_genes):
-							c_count = c_count + 1
-						else:
-							n_count = n_count + 1
+					# for gene in genes:
+					# 	if(gene in cancer_genes):
+					# 		c_count = c_count + 1
+					# 	else:
+					# 		n_count = n_count + 1
 
-					print "Cancer: " + str(c_count) + "\t" + str(n_count) + "\t" + str(c_count_back) + "\t" + str(n_count_back)
-					print "Mutation: " + str(m_count) + "\t" + str(w_count) + "\t" + str(m_count_back) + "\t" + str(w_count_back)
-					oddsratio, c_pvalue = stats.fisher_exact([[c_count, n_count], [c_count_back, n_count_back]], alternative='greater')
+					#print "Cancer: " + str(c_count) + "\t" + str(n_count) + "\t" + str(c_count_back) + "\t" + str(n_count_back)
+					#print "Mutation: " + str(m_count) + "\t" + str(w_count) + "\t" + str(m_count_back) + "\t" + str(w_count_back)
+					#oddsratio, c_pvalue = stats.fisher_exact([[c_count, n_count], [c_count_back, n_count_back]], alternative='greater')
 					oddsratio, m_pvalue = stats.fisher_exact([[m_count, w_count], [m_count_back, w_count_back]], alternative='greater')
 
-					writer.write(type + " DOMAIN:\t" + str(d_start) + "\t" + str(d_end) + "\t" + str(max_count) + "\t" + str(c_pvalue) + "\t" + str(m_pvalue) + "\n")
+					#writer.write(type + " DOMAIN:\t" + str(d_start) + "\t" + str(d_end) + "\t" + str(max_count) + "\t" + str(c_pvalue) + "\t" + str(m_pvalue) + "\n")
+					writer.write(type + " DOMAIN:\t" + str(d_start) + "-" + str(d_end) + "\tCount:\t" + str(max_count) + "\tP-Value:\t" + str(m_pvalue) + "\n")
 			start = -1
 
 
@@ -590,7 +586,7 @@ def main(argv):
 	try:
 		opts, args = getopt.getopt(argv,"hi:r:m:n:c:p:x:a:",["ifile=","mfile="])#,"ofile="])
 	except getopt.GetoptError:
-		print 'infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <cancer> -p <peak-cutoff> -a <apriori>'
+		print 'infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <correlation> -p <peak-cutoff> -a <apriori>'
 		sys.exit(2)
 
 	for opt, arg in opts:
@@ -605,8 +601,8 @@ def main(argv):
 			modelsfile = arg
 		elif opt in ("-n", "--mechanisms"):
 			mechsfile = arg
-		elif opt in ("-c", "--cancer"):
-			cancer_type = arg
+		elif opt in ("-c", "--correlation"):
+			correlationfile = arg
 		elif opt in ("-p", "--peak-cutoff"):
 			p_cutoff = arg
 		elif opt in ("-x", "--topX"):
@@ -617,20 +613,22 @@ def main(argv):
 			else:
 				apriori = False
 
-	#correlationfile = "/home/agawrons/data/net.edges.sig.genes"  
-	#correlationfile = "./data/correlation/{0}.tcga.pearson.sig.genes".format(cancer_type) 
-	correlationfile = "./data/correlation/{0}.net.edges.sig.genes".format(cancer_type)
-	proteinfile = "./data/peaks/graphprot.peaks.{0}.sig".format(ref) 
-	indelsfile = "./data/indels.{0}".format(ref)
-	repeatsfile = "./data/repeats.{0}".format(ref)
+	workdir = os.path.dirname(os.path.abspath(inputfile))
+	proteinfile = workdir + "/data/peaks/graphprot.peaks.{0}.sig".format(ref) 
+	annotationfile = workdir + "/data/anno.{0}".format(ref)
+	indelsfile = workdir + "/data/indels.{0}".format(ref)
+	repeatsfile = workdir + "/data/repeats.{0}".format(ref)
+	upregulatorsfile = workdir + "/data/upregulators"
+	downregulatorsfile = workdir + "/data/downregulators"
+	complexesfile = workdir + "/data/complexes"
+	cancerfile = workdir + "/data/cancer.genes"
 	outputfile = inputfile + ".mechs"
 	outputfiledomains = inputfile + ".domains"
-	#correlationfile = "../MechRNA-v0.1/data/test.net"
-	#proteinfile = "./test/test.peaks" 
 
 	intarna_data = list()
 	models = list()
 	graphprot_data = dict()
+	anno_data = dict()
 	correl_lncRNA_data = dict()
 	correl_proteins_data = dict()
 	cur_transcript = None
@@ -670,31 +668,33 @@ def main(argv):
 
 	compute_pvalues(data, energies, index)
 
-	writer = open(inputfile+".tmp.targets", 'w')
-
-	for inter in data:
-		writer.write("N\t" + str(inter.t_start) + "\t" + str(inter.t_end) + "\t" + inter.t_gene_id + "\t" + inter.t_trans_id + "\n")
-
-	writer.close()
-	writer = open(outputfile, 'w')
-
 	print "Annotating RNA-RNA interactions..."
 
-	command = "/home/agawronski/bin/mistrvar/sniper/sniper annotate ~/data/GTF/Homo_sapiens.GRCh38.86.gtf " + inputfile + ".tmp.targets " +  inputfile +".tmp.targets.anno 0"
-
-	p = subprocess.Popen(command, shell=True)
-	ret = p.wait()
-	index = 0
-
-	with open(inputfile +".tmp.targets.anno", 'r') as anno_in:
+	with open(annotationfile, 'r') as anno_in:
 		for line in anno_in:
 			tokens = line.split('\t')
-			data[index].anno1 = tokens[6]
-			data[index].anno2 = tokens[7][:-1]
-			index = index + 1
+			tokens[2] = tokens[2][:-1]
+			anno_data[tokens[0]] = tokens[1:3]
 
-	os.remove(inputfile+".tmp.targets")
-	os.remove(inputfile+".tmp.targets.anno")
+	for RR_inter in data:
+
+		if(anno_data[RR_inter.t_trans_id][0] == 0):
+			RR_inter.anno1 = "non-coding"
+			RR_inter.anno2 = "non-coding"
+		else:
+			if(RR_inter.t_start <= anno_data[RR_inter.t_trans_id][0]):
+				RR_inter.anno1 = "3'UTR"
+			elif(RR_inter.t_start >= anno_data[RR_inter.t_trans_id][1]):
+				RR_inter.anno1 = "5'UTR"
+			else:
+				RR_inter.anno1 = "CDS"
+
+			if(RR_inter.t_end <= anno_data[RR_inter.t_trans_id][0]):
+				RR_inter.anno2 = "3'UTR"
+			elif(RR_inter.t_end >= anno_data[RR_inter.t_trans_id][1]):
+				RR_inter.anno2 = "5'UTR"
+			else:
+				RR_inter.anno2 = "CDS"
 
 	print "Loading auxiliary files..."
 
@@ -789,17 +789,11 @@ def main(argv):
 								graphprot_data[model][tokens[0]] = list()
 							graphprot_data[model][tokens[0]].append(peak)
 
-	# for RR_interaction in data:
-
-	# 	if(cur_transcript == None): cur_transcript = RR_interaction.t_trans_id
-
-	# 	if(RR_interaction.t_trans_id != cur_transcript):
-
-		# gene = RR_interactions[0].t_gene_id
-		# target_ids = RR_interactions[0].get_target_id()
-		# lncRNA_ids = RR_interactions[0].get_lncRNA_id()
 
 	print "Inferring mechanisms..."
+
+	writer = open(outputfile, 'w')
+
 	for key in lookup.keys():
 
 		indices = lookup[key]
@@ -811,8 +805,7 @@ def main(argv):
 		for index in indices:
 
 			RR_inter = data[index]
-			
-#			for RR_inter in RR_interactions:
+
 			for protein_target in models:
 				pt_correl = correl_proteins_data[protein_target].get(gene)
 				pt_peaks = graphprot_data[protein_target].get(target_ids)
@@ -821,9 +814,8 @@ def main(argv):
 					pt_peaks = list()
 					pt_peaks.append(Protein_Interaction(["NA","NA","NA","NA","0","1","NA"], Correlation(["0","1","1","NA"])))
 				if((not apriori and (pt_correl == None)) or pt_peaks == None): continue
-				#if(pt_correl == None or pt_peaks == None): continue
+
 				for peak_pt in pt_peaks:
-					#print peak_pt.gene_id
 					for protein_lncRNA in models:
 						pl_correl = correl_proteins_data[protein_lncRNA].get(gene)
 						pl_peaks = graphprot_data[protein_lncRNA].get(lncRNA_ids)
@@ -832,12 +824,10 @@ def main(argv):
 							pl_peaks = list()
 							pl_peaks.append(Protein_Interaction(["NA","NA","NA","NA","0","1","NA"], Correlation(["0","1","1","NA"])))
 						if((not apriori and (pl_correl == None or (protein_target == protein_lncRNA and protein_target != "NA;NA"))) or pl_peaks == None): continue
-						#if(pl_correl == None or (protein_target == protein_lncRNA and protein_target != "NA;NA") or pl_peaks == None): continue
-						for peak_pl in pl_peaks: 
-						
-							#if(float(peak_pl.pvalue) > float(p_cutoff) and peak_pl.start != "NA"): continue
+
+						for peak_pl in pl_peaks: 						
 							candidate = Candidate(RR_inter)
-							candidate.correl = (correl_lncRNA_data.get(gene, Correlation(["0","1","1","NA"])))#[gene])
+							candidate.correl = (correl_lncRNA_data.get(gene, Correlation(["0","1","1","NA"])))
 							candidate.t_peak = peak_pt
 							candidate.l_peak = peak_pl
 
@@ -854,23 +844,11 @@ def main(argv):
 								else:
 									candidate.joint_pvalue = pvalues[0]
 
-								# if(candidate.rna.t_trans_id == "ENST00000612010"):
-								# 	print pvalues
-								# 	print str(candidate.rna.E) + " " + str(candidate.rna.fdr) + " " + str(candidate.joint_pvalue)
-
 								if(top_candidate == None or float(candidate.joint_pvalue) < float(top_candidate.joint_pvalue)):
 									top_candidate = candidate
-									#print "top: " + str(top_candidate.joint_pvalue)
-
-								#if(apriori): writer.write(candidate.toString() + "\n")
 									
-		if(top_candidate != None):# and not apriori):
+		if(top_candidate != None):
 			writer.write(top_candidate.toString() + "\n")
-
-		# 	cur_transcript = RR_interaction.t_trans_id
-		# 	RR_interactions = list()
-
-		# RR_interactions.append(RR_interaction)
 
 	writer.close()
 	batch_sort(outputfile, (outputfile + ".sort"), key=sort_key_p)
@@ -884,7 +862,7 @@ def main(argv):
 
 	writer = open(outputfiledomains, 'w')
 
-	find_functional_domains(data, "l_start", "l_end", writer, "RNA-RNA", 1, 20)
+	find_functional_domains(cancerfile, data, "l_start", "l_end", writer, "RNA-RNA", 1, 20)
 
 	peaks = list()
 
@@ -893,9 +871,11 @@ def main(argv):
 			if (graphprot_data[model].get(lncRNA_ids) != None):
 				peaks.extend(graphprot_data[model].get(lncRNA_ids)) 
 	
-	find_functional_domains(peaks, "start", "end", writer, "Protein", 1, 20)
+	find_functional_domains(cancerfile, peaks, "start", "end", writer, "Protein", 1, 20)
 	
 	writer.close()
+
+	print "Done"
 
 if __name__ == "__main__":
 	sys.exit(main(sys.argv[1:]))
