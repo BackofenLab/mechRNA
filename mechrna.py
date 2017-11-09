@@ -249,7 +249,7 @@ def apply_status_check(st,single,message):
 		if single:
 			exit(1)
 	elif st == 1:
-		logln(message+bcolors.WARNING+" SKIPPING"+bcolors.ENDC)
+		python_is_dumb=1#logln(message+bcolors.WARNING+" SKIPPING"+bcolors.ENDC)
 	elif st == 2:
 		if single:
 			logEXIT()
@@ -513,7 +513,7 @@ def assign_worker(config):
 						ctr_file.write("Finish worker {0}\n".format(i))
 				else:
 					maxjobs = i
-					config.set("project","num-worker",maxjobs)
+					config.set("project","num-worker",str(maxjobs))
 					break
 
 			else:
@@ -582,6 +582,8 @@ def run_command(config, force=False):
 		#shell(msg, True, cmd)
 		submit_intarna_jobs(config)
 		logOK()
+		print "Waiting for jobs to complete",
+		sys.stdout.flush()
 
 		jobs_finished = False;
 		maxjobs = int( config.get("project", "num-worker") )
@@ -591,7 +593,8 @@ def run_command(config, force=False):
 		while(not jobs_finished):
 			time.sleep(60)
 			jobs_finished = True
-			print ".",
+			sys.stdout.write('.')
+			sys.stdout.flush()
 			for i in xrange(maxjobs):
 				complete_file = "{0}/stage/03.intarna.{1}.finished".format(pipeline.workdir, i);
 				pbs_log=pipeline.workdir+'/log/intarna_{0}.o'.format(i)
@@ -603,12 +606,14 @@ def run_command(config, force=False):
 				if not st == 1:
 					jobs_finished = False
 
-		msg = "Merging {0} output files".format(config.get("project", "num-worker"))
+		logOK()
+		msg = "\nMerging {0} output files".format(config.get("project", "num-worker"))
 		cmd = "{0}/merge_output.sh".format(pipeline.workdir)
 		shell( msg, True, cmd)
 		logOK()
 
 	inference(config)
+	print "Done"
 
 #############################################################################################
 def mkdir_p(path):
@@ -736,9 +741,9 @@ def initialize_config_intarna( config, args):
 	config.set("intarna","engine-mode",args.mode if args.mode != None else "normal")
 	config.set("intarna","range", str( args.range ) if args.range !=None else "-1" )
 	config.set("intarna","worker-id", str(args.worker_id) if args.worker_id != None else "-1")
-	config.set("intarna","job-cpus", args.job_num_cpus if args.job_num_cpus != None else "1")
-	config.set("intarna","job-time", args.job_max_time if args.job_max_time != None else "24:00:00")
-	config.set("intarna","job-memory",args.job_max_memory if args.job_max_memory != None else "8G")
+	config.set("intarna","job-cpus", str(args.job_num_cpus) if args.job_num_cpus != None else "1")
+	config.set("intarna","job-time", str(args.job_max_time) if args.job_max_time != None else "24:00:00")
+	config.set("intarna","job-memory",str(args.job_max_memory) if args.job_max_memory != None else "8G")
 	return config
 
 #############################################################################################
@@ -793,9 +798,9 @@ def check_project_preq():
 		config.set("project", "apriori", str(args.apriori))
 		config.set("project", "targets", str(args.targets) if args.targets != None else None) 
 		config.set("project", "num-worker", str(args.num_worker) if args.num_worker != None else "1" )
-		config.set("project", "topX", args.topX if args.topX != None else "2" )
+		config.set("project", "topX", str(args.topX) if args.topX != None else "2" )
 		config.set("project", "correlation", str(args.correlation) if args.correlation != None else "None" )
-		config.set("project", "peak-cutoff", args.peak_cutoff if args.peak_cutoff != None else "0.01" )
+		config.set("project", "peak-cutoff", str(args.peak_cutoff) if args.peak_cutoff != None else "0.01" )
 
 		# Parameters for other parts in the pipeline
 		initialize_config_graphprot(config, args)

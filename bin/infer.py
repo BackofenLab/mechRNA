@@ -614,7 +614,7 @@ def main(argv):
 				apriori = False
 
 	workdir = os.path.dirname(os.path.abspath(inputfile))
-	proteinfile = workdir + "/data/peaks/graphprot.peaks.{0}.sig".format(ref) 
+	proteinfile = workdir + "/data/peaks/graphprot.peaks.{0}.sig.pp25".format(ref) 
 	annotationfile = workdir + "/data/anno.{0}".format(ref)
 	indelsfile = workdir + "/data/indels.{0}".format(ref)
 	repeatsfile = workdir + "/data/repeats.{0}".format(ref)
