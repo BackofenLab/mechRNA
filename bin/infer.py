@@ -22,9 +22,12 @@ all_trans = dict()
 LOCAL_DIST = 1000
 OVERLAP_DIST = 50
 
-rna_inter_members = ["t_trans_id","t_gene_id","t_gene_symbol","l_trans_id","l_gene_id","l_gene_symbol","t_start","t_end","l_start","l_end","E_init","E_loops","E_dangleL","E_dangleR","E_endL","E_endR","ED1","ED2","E","pvalue","fdr","mutations","anno1","anno2"]
-protein_inter_members = ["start", "end", "gene_id", "gene_symbol", "peak", "pvalue", "pid", "mutations"]
-correlation_members = ["pcor", "pvalue", "dir_pvalue", "dir"]
+#rna_inter_members = ["t_trans_id","t_gene_id","t_gene_symbol","l_trans_id","l_gene_id","l_gene_symbol","t_start","t_end","l_start","l_end","E_init","E_loops","E_dangleL","E_dangleR","E_endL","E_endR","ED1","ED2","E","pvalue","fdr","mutations","anno1","anno2"]
+rna_inter_members = ["t_trans_id","t_gene_id","t_gene_symbol","l_trans_id","l_gene_id","l_gene_symbol","t_start","t_end","l_start","l_end","E","pvalue","fdr","mutations","anno1","anno2"]
+#protein_inter_members = ["start", "end", "gene_id", "gene_symbol", "peak", "pvalue", "pid", "mutations"]
+protein_inter_members = ["start", "end", "gene_id", "gene_symbol", "pvalue", "mutations"]
+#correlation_members = ["pcor", "pvalue", "dir_pvalue", "dir"]
+correlation_members = ["pcor", "pvalue"]
 
 #######################################################
 #
@@ -76,14 +79,14 @@ class RNA_Interaction:
 		self.t_end = tokens[3]
 		self.l_start = tokens[4]
 		self.l_end = tokens[5]
-		self.E_init = tokens[6]
-		self.E_loops = tokens[7]
-		self.E_dangleL = tokens[8]
-		self.E_dangleR = tokens[9]
-		self.E_endL = tokens[10]
-		self.E_endR = tokens[11]
-		self.ED1 = tokens[12]
-		self.ED2 = tokens[13]
+		#self.E_init = tokens[6]
+		#self.E_loops = tokens[7]
+		#self.E_dangleL = tokens[8]
+		#self.E_dangleR = tokens[9]
+		#self.E_endL = tokens[10]
+		#self.E_endR = tokens[11]
+		#self.ED1 = tokens[12]
+		#self.ED2 = tokens[13]
 		self.E = tokens[14]
 		self.pvalue = 0 #tokens[15]
 		self.fdr = 0 #tokens[16]
@@ -109,9 +112,9 @@ class Protein_Interaction:
 		self.end = data[1]
 		self.gene_id = data[2]
 		self.gene_symbol = data[3]
-		self.peak = data[4]
+		#self.peak = data[4]
 		self.pvalue = data[5]
-		self.pid = data[6]
+		#self.pid = data[6]
 		self.correl = correl
 		self.mutations = 0
 
@@ -125,8 +128,8 @@ class Correlation:
 	def __init__(self, data):
 		self.pcor = data[0]
 		self.pvalue = data[1]
-		self.dir_pvalue = data[2]
-		self.dir = data[3]
+		#self.dir_pvalue = data[2]
+		#self.dir = data[3]
 
 	def toString(self):
 		correl_string = ""
@@ -144,7 +147,7 @@ def sort_key(item):
 	return float(item.split(';')[14][:-1])
 
 def sort_key_p(item):
-	return float(item.split('\t')[53][:-1]) #(len(item)-1)
+	return float(item.split('\t')[35][:-1]) #(len(item)-1)
 
 def sort_key_id(item):
 	return float(item.split('\t')[0])
@@ -851,7 +854,15 @@ def main(argv):
 			writer.write(top_candidate.toString() + "\n")
 
 	writer.close()
-	batch_sort(outputfile, (outputfile + ".sort"), key=sort_key_p)
+	
+	batch_sort(outputfile, (outputfile + ".sort.tsv"), key=sort_key_p)
+
+	header = "target_transcript_ID\ttarget_gene_ID\ttarget_gene_symbol\tlncRNA_transcript_id\tlncRNA_gene_ID\tlncRNA_gene_symbol\ttarget_start\ttarget_end\tlncRNA_start\tlncRNA_end\tfree_energy\tP_value\tFDR\tmutation_count\tleft_context\tright_context\tpartial_correl\tpartial_correl_fdr\trbp_target_peak_start\trbp_target_peak_end\trbp_gene_ID\trbp_gene_symbol\trbp_p_value\tmutation_count\tpartial_correl\tpartial_correl_fdr\trbp_lncRNA_peak_start\trbp_lncRNA_peak_end\trbp_gene_ID\trbp_gene_symbol\trbp_p_value\tmutation_count\tpartial_correl\tpartial_correl_fdr\tmechanism\tjoint_p_value"
+
+	with open((outputfile + ".sort.tsv"), 'r+') as f:
+		content = f.read()
+		f.seek(0, 0)
+		f.write(header + '\n' + content)
 
 
 	#==================================
