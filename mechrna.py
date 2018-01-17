@@ -25,8 +25,10 @@ class pipeline:
 	workdir  = os.path.dirname(os.path.realpath(__file__))
 	datadir  = os.path.dirname(os.path.realpath(__file__)) + "/data/"
 	# example usage for help
-	example  = "\tTo create a new project: specify (1) project name and (2) lncRNA sequence\n"
-	example += "\t$ ./mechrna.py -p my_project -l my_rna.fa\n"	
+	example  = "\tTo create a new screening mode project: specify (1) project name and (2) lncRNA sequence (3) correlation file\n"
+	example += "\t$ ./mechrna.py -p my_project -l my_rna.fa -c ./data/correlation/correl.genenet.[cancer_type].tcga\n"	
+	example += "\n\n\tTo create a new hypothesis-driven mode project: specify (1) project name and (2) lncRNA sequence (3) target/rbps/mechanisms files\n"
+	example += "\t$ ./mechrna.py -p my_project -l my_rna.fa -a [-T my_targets] [-B my_rbps] [-M my_mechanisms]\n"
 	example += "\n\n\tTo resume a project, just type project folder and mechrna.py will automatically resume from the previous stages:\n"
 	example += "\t$ ./mechrna.py -p my_project\n"
 	example += "\t$ ./mechrna.py -p /home/this/is/my/folder/project\n\n"
@@ -50,13 +52,9 @@ def command_line_process():
 		metavar='lncRNA',
 		help='Fasta file of lncRNA of interest.'
 	)
-	parser.add_argument('--dest','-d',
-		metavar='destination',
-		help='Directory that will be used for analysis. (default: ./)'
-	)
 	parser.add_argument('--reference','-r',
 		metavar='reference',
-		help='"GRCh37.75" or "GRCh38.86"'
+		help='"GRCh37.75" or "GRCh38.86" (default GRCh38.86)'
 	)
 	parser.add_argument('--correlation','-c',
 		metavar='correlation',
@@ -64,7 +62,7 @@ def command_line_process():
 	)
 	parser.add_argument('--apriori','-a',
 		action='store_true',
-		help='Enables hypothesis-driven mode that uses only the user specified a priori information and disables use of correlations.',
+		help='Enables hypothesis-driven mode that uses user-specified a priori information.',
 	)
 	parser.add_argument('--targets','-T',
 		metavar='targets',
@@ -82,6 +80,10 @@ def command_line_process():
 		type=int,
 		metavar='topX',
 		help="Top x percent of IntaRNA predictions to retain for further analysis. (default: 2)",
+	)
+	parser.add_argument('--dist','-d',
+		metavar='dist',
+		help="Distribution to use for fitting interaction energies. (gamma or gev, default: gamma)",
 	)
 	parser.add_argument('--peak-cutoff','-P',
 		type=float,
@@ -124,6 +126,7 @@ def command_line_process():
 	)
 	parser.add_argument('--num-worker',
 		type=int,
+		metavar='num_worker',
 		help='Number of independent prediction jobs which will be created. (default: 1)',
 	)
 	parser.add_argument('--range',
@@ -414,7 +417,7 @@ def intarna(config ):
 	complete_file = "{0}/stage/03.intarna.{1}.finished".format(workdir, worker_id);
 	success_message	 = "completed"
 	#freeze_arg    = "{0}\t{1}\t{2}\t{3}\t{4}".format(worker_id, rng, config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"))  
-	cmd           = pipeline.intarna +" --tAccL {0} --tAccW {1} --qAccL {2} --qAccW {3} -n {4} -t {5} -q {6} --tRegionLenMax {7} --qRegionLenMax {8} --tRange {9} --outMode=C --outCsvCols 'id1,id2,start1,end1,start2,end2,E_init,E_loops,E_dangleL,E_dangleR,E_endL,E_endR,ED1,ED2,E' > {10}".format(config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"), target_file, lncRNA_file, config.get("intarna","tRegionLenMax"), config.get("intarna","qRegionLenMax"), rng, output_prefix)
+	cmd           = pipeline.intarna +" --tAccL {0} --tAccW {1} --qAccL {2} --qAccW {3} -n {4} -t {5} -q {6} --tRegionLenMax {7} --qRegionLenMax {8} --tSet {9} --outMode=C --outCsvCols 'id1,id2,start1,end1,start2,end2,E_init,E_loops,E_dangleL,E_dangleR,E_endL,E_endR,ED1,ED2,E' > {10}".format(config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"), target_file, lncRNA_file, config.get("intarna","tRegionLenMax"), config.get("intarna","qRegionLenMax"), rng, output_prefix)
 	run_cmd       = not ( os.path.isfile(complete_file) and success_message in open(complete_file).read()) 
 	shell( msg, run_cmd, cmd, control_file, complete_file, success_message)
 	
@@ -431,7 +434,7 @@ def inference(config):
 	control_file  = "{0}/log/04.inference.log".format(workdir);
 	complete_file = "{0}/stage/04.inference.finished".format(workdir);
 	freeze_arg    = ""
-	cmd           = pipeline.inference + ' -i {0} -r {1} -m {2} -n {3} -c {4} -p {5} -x {6} -a {7}'.format(input_file, config.get("project", "reference"), models, mechs, config.get("project", "correlation"), config.get("project", "peak-cutoff"), config.get("project", "topX"), config.get("project", "apriori")) 
+	cmd           = pipeline.inference + ' -i {0} -r {1} -m {2} -n {3} -c {4} -p {5} -x {6} -d {7} -a {8}'.format(input_file, config.get("project", "reference"), models, mechs, config.get("project", "correlation"), config.get("project", "peak-cutoff"), config.get("project", "topX"), config.get("project", "dist"), config.get("project", "apriori")) 
 	run_cmd       = not ( os.path.isfile(complete_file) and freeze_arg in open(complete_file).read()) 
 
 	if ( run_cmd ):
@@ -568,7 +571,7 @@ def run_command(config, force=False):
 
 	engine_mode = config.get("intarna", "engine-mode")
 	if ( ( "pbs" !=  engine_mode) and ( ( "sge" ) != engine_mode) ):
-		num_parallel = config.get("project", "num-worker")
+		num_parallel = int(config.get("project", "num-worker"))
 		msg = "Running prediction with {0} parallel task(s)".format(num_parallel)
 		cmd = pipeline.workdir+ "/run.sh" 
 		freeze_arg    = "{0}\t{1}\t{2}\t{3}".format(num_parallel, config.get("intarna","max-loop"), config.get("intarna","window"), config.get("intarna","suboptimals"))
@@ -607,7 +610,7 @@ def run_command(config, force=False):
 					jobs_finished = False
 
 		logOK()
-		msg = "\nMerging {0} output files".format(config.get("project", "num-worker"))
+		msg = "\nMerging {0} output files".format(int( config.get("project", "num-worker") ))
 		cmd = "{0}/merge_output.sh".format(pipeline.workdir)
 		shell( msg, True, cmd)
 		logOK()
@@ -794,11 +797,12 @@ def check_project_preq():
 		config.add_section("project")
 		config.set("project", "name", project_name)
 		config.set("project", "lncRNA", args.lncRNA)
-		config.set("project", "reference", str(args.reference) if args.reference != None else "GRCh37.75")
+		config.set("project", "reference", str(args.reference) if args.reference != None else "GRCh38.86")
 		config.set("project", "apriori", str(args.apriori))
 		config.set("project", "targets", str(args.targets) if args.targets != None else None) 
 		config.set("project", "num-worker", str(args.num_worker) if args.num_worker != None else "1" )
 		config.set("project", "topX", str(args.topX) if args.topX != None else "2" )
+		config.set("project", "dist", args.dist if args.dist != None else "gamma" )
 		config.set("project", "correlation", str(args.correlation) if args.correlation != None else "None" )
 		config.set("project", "peak-cutoff", str(args.peak_cutoff) if args.peak_cutoff != None else "0.01" )
 

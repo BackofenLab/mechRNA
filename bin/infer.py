@@ -61,6 +61,17 @@ class Candidate:
 				pvalues[i] = float(1e-22)
 		return pvalues
 
+	def get_weights(self):
+		weights = list()
+		weights.append(float(1))
+		if(float(self.correl.pvalue) != 1): weights.append(float(1.0))
+		if(float(self.t_peak.pvalue) != 1): weights.append(float(1.0))
+		if(float(self.t_peak.correl.pvalue) != 1): weights.append(float(1.0))
+		if(float(self.l_peak.pvalue) != 1): weights.append(float(1.0))
+		if(float(self.l_peak.correl.pvalue) != 1): weights.append(float(1.0))
+
+		return weights
+
 	def toString(self):
 		return "{0}\t{1}\t{2}\t{3}\t{4}\t{5}".format(self.rna.toString(), self.correl.toString(), self.t_peak.toString(), self.l_peak.toString(), self.mechanism, self.joint_pvalue) 
 
@@ -331,7 +342,7 @@ def load_data(inputfile, top, sample):
 
 	return (lookup, data, energies, index)
 
-def compute_pvalues(data, energies, index):
+def compute_pvalues(data, energies, index, mode):
 
 	eng_obs = [float(x) * -1 for x in energies[0:index]]
 
@@ -339,9 +350,16 @@ def compute_pvalues(data, energies, index):
 
 	eng_back = [float(x) * -1 for x in energies[index:]]
 
-	fit_alpha, fit_loc, fit_beta=stats.gamma.fit(eng_back)
+	if(mode == "gamma"):
+		fit_alpha, fit_loc, fit_beta = stats.gamma.fit(eng_back)
+		pvalues = stats.gamma.sf(eng_obs, fit_alpha, loc=fit_loc, scale=fit_beta)
 
-	pvalues = stats.gamma.sf(eng_obs, fit_alpha, loc=fit_loc, scale=fit_beta)
+	elif(mode == "gev"):
+		fit_c, fit_loc, fit_scale = stats.genextreme.fit(eng_back)
+		pvalues = stats.genextreme.sf(eng_obs, fit_c, loc=fit_loc, scale=fit_scale)
+	else:
+		print mode + " distribution not supported."
+		sys.exit(1)
 	
 	reject, pvalues_corr = fdrcorrection0(pvalues, is_sorted=True)
 
@@ -587,14 +605,14 @@ def find_functional_domains(cancerfile, interactions, coor1, coor2, writer, type
 def main(argv):
 
 	try:
-		opts, args = getopt.getopt(argv,"hi:r:m:n:c:p:x:a:",["ifile=","mfile="])#,"ofile="])
+		opts, args = getopt.getopt(argv,"hi:r:m:n:c:p:x:d:a:",["ifile=","mfile="])#,"ofile="])
 	except getopt.GetoptError:
-		print 'infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <correlation> -p <peak-cutoff> -a <apriori>'
+		print 'infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <correlation> -p <peak-cutoff> -x <top-percent> -d <distribution> -a <apriori>'
 		sys.exit(2)
 
 	for opt, arg in opts:
 		if opt == '-h':
-			print 'infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <cancer> -p <peak-cutoff> -x <top-percent> -a <apriori>'
+			print 'infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <cancer> -p <peak-cutoff> -x <top-percent> -d <distribution> -a <apriori>'
 			sys.exit()
 		elif opt in ("-i", "--ifile"):
 			inputfile = arg
@@ -610,6 +628,8 @@ def main(argv):
 			p_cutoff = arg
 		elif opt in ("-x", "--topX"):
 			topx = arg
+		elif opt in ("-d", "--dist"):
+			dist = arg
 		elif opt in ("-a", "--apriori"):
 			if(arg in ['True', 'true', 'T', 't', '1']):
 				apriori = True
@@ -669,7 +689,7 @@ def main(argv):
 
 	print "Computing RNA-RNA interaction p-values..."
 
-	compute_pvalues(data, energies, index)
+	compute_pvalues(data, energies, index, dist)
 
 	print "Annotating RNA-RNA interactions..."
 
@@ -681,21 +701,22 @@ def main(argv):
 
 	for RR_inter in data:
 
-		if(anno_data[RR_inter.t_trans_id][0] == 0):
+		if(int(anno_data[RR_inter.t_trans_id][0]) == 0):
 			RR_inter.anno1 = "non-coding"
 			RR_inter.anno2 = "non-coding"
 		else:
-			if(RR_inter.t_start <= anno_data[RR_inter.t_trans_id][0]):
-				RR_inter.anno1 = "3'UTR"
-			elif(RR_inter.t_start >= anno_data[RR_inter.t_trans_id][1]):
+			
+			if(RR_inter.t_start <= int(anno_data[RR_inter.t_trans_id][0])):
 				RR_inter.anno1 = "5'UTR"
+			elif(RR_inter.t_start >= int(anno_data[RR_inter.t_trans_id][1])):
+				RR_inter.anno1 = "3'UTR"
 			else:
 				RR_inter.anno1 = "CDS"
 
-			if(RR_inter.t_end <= anno_data[RR_inter.t_trans_id][0]):
-				RR_inter.anno2 = "3'UTR"
-			elif(RR_inter.t_end >= anno_data[RR_inter.t_trans_id][1]):
+			if(RR_inter.t_end <= int(anno_data[RR_inter.t_trans_id][0])):
 				RR_inter.anno2 = "5'UTR"
+			elif(RR_inter.t_end >= int(anno_data[RR_inter.t_trans_id][1])):
+				RR_inter.anno2 = "3'UTR"
 			else:
 				RR_inter.anno2 = "CDS"
 
@@ -840,9 +861,10 @@ def main(argv):
 
 								candidate.mechanism = mechanism
 								pvalues = candidate.get_pvalues()
+								weights = candidate.get_weights()
 
 								if(len(pvalues) > 1): 
-									xsq, p = stats.combine_pvalues(np.array(pvalues), method='stouffer', weights=None)
+									xsq, p = stats.combine_pvalues(np.array(pvalues), method='stouffer', weights=weights)
 									candidate.joint_pvalue = p
 								else:
 									candidate.joint_pvalue = pvalues[0]
@@ -869,22 +891,23 @@ def main(argv):
 	#= Domain Analysis
 	#==================================
 
-	print "Predicting functional domains..."
+	if(not apriori):
+		print "Predicting functional domains..."
 
-	writer = open(outputfiledomains, 'w')
+		writer = open(outputfiledomains, 'w')
 
-	find_functional_domains(cancerfile, data, "l_start", "l_end", writer, "RNA-RNA", 1, 20)
+		find_functional_domains(cancerfile, data, "l_start", "l_end", writer, "RNA-RNA", 1, 20)
 
-	peaks = list()
+		peaks = list()
 
-	for model in models:
-		if(model != "NA;NA"):
-			if (graphprot_data[model].get(lncRNA_ids) != None):
-				peaks.extend(graphprot_data[model].get(lncRNA_ids)) 
-	
-	find_functional_domains(cancerfile, peaks, "start", "end", writer, "Protein", 1, 20)
-	
-	writer.close()
+		for model in models:
+			if(model != "NA;NA"):
+				if (graphprot_data[model].get(lncRNA_ids) != None):
+					peaks.extend(graphprot_data[model].get(lncRNA_ids)) 
+		
+		find_functional_domains(cancerfile, peaks, "start", "end", writer, "Protein", 1, 20)
+		
+		writer.close()
 
 	print "Done"
 
