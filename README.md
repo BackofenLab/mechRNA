@@ -9,9 +9,9 @@ MechRNA is a computational tool for integration RNA-RNA interactions, RNA-Protei
  
 - [IntaRNA2](https://github.com/BackofenLab/IntaRNA) version >= 2.0
 - Python version >= 2.7 with packages:
-	> numpy
-	> scipy
-	> statsmodels
+	- numpy
+	- scipy
+	- statsmodels
 
 2. Clone or download MechRNA:
 
