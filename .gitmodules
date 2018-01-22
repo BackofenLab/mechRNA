@@ -1,0 +1,3 @@
+[submodule "IntaRNA"]
+	path = IntaRNA
+	url = https://github.com/BackofenLab/IntaRNA.git
