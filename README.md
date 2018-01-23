@@ -40,7 +40,7 @@ Installation is not necessary, MechRNA will use the local executable.
 /mechrna/data/refs/
 
 ```
-
+For screening mode, please also download the [correlation file](https://zenodo.org/record/1115534) for your cancer type of interest. This file should be placed in the /mechrna/data/correlations/ folder.
 
 ### How do I run MechRNA?
 You can use 
