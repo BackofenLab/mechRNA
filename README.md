@@ -31,7 +31,7 @@ make
 ```
 Installation is not necessary, MechRNA will use the local executable.
 
-4. Download the required data into /mechrna/data/ which can found [here](). The file structure should be as shown below:
+4. Download the required data into /mechrna/data/ which can found [here](https://zenodo.org/record/1115534/files/mechrna.data.grch38.tar.gz). The file structure should be as shown below:
 
 ```
 /mechrna/data/
