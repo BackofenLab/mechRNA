@@ -7,7 +7,7 @@ MechRNA is a computational tool for integration RNA-RNA interactions, RNA-Protei
 
 1. Ensure you have the required dependancies:
  
-- [IntaRNA2](https://github.com/BackofenLab/IntaRNA) version >= 2.0
+- [ViennaRNA](https://www.tbi.univie.ac.at/RNA/) >= 2.4.3
 - Python version >= 2.7 with packages:
 	- numpy
 	- scipy
@@ -16,11 +16,20 @@ MechRNA is a computational tool for integration RNA-RNA interactions, RNA-Protei
 2. Clone or download MechRNA:
 
 ```
-git clone https://bitbucket.org/compbio/mechrna.git
+git clone --recursive https://bitbucket.org/compbio/mechrna.git
 
 ```
 
-3. Copy the IntaRNA executable into /mechrna/bin/ .
+3. Build [IntaRNA2](https://github.com/BackofenLab/IntaRNA)
+
+```
+cd ./mechrna/IntaRNA
+bash ./autotools-init.sh
+./configure
+make
+
+```
+Installation is not necessary, MechRNA will use the local executable.
 
 4. Download the required data into /mechrna/data/ which can found [here](). The file structure should be as shown below:
 

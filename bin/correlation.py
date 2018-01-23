@@ -52,7 +52,6 @@ def main(argv):
 	for x in xrange(0, len(data)):
    		for y in xrange(x+1, len(data)):
    			r_row, p_value = pearsonr(data[x], data[y])
-			#if(p_value < 0.05):
 			writer.write(genes[x] + "\t" + genes[y] + "\t" + str(r_row) + "\t" + str(p_value) + "\n")
 			pvalues.append(p_value)
 
@@ -71,7 +70,3 @@ def main(argv):
 if __name__ == "__main__":
 	sys.exit(main(sys.argv[1:]))
 
-
-#"Gene_Name,Accessible_Region,Target_Start,Target_End,lncRNA,lncRNA_Start,lncRNA_End,Free_Energy,LT_P-Value,
-#Protein_lncRNA,Protein_Start,Protein_End,PL_P-Value,Protein_Target,Protein_Start,Protein_End,PT_P-Value"
-#LT_Correl, LT_Correl_P-Value, PL_Correl, PL_Correl_P-Value, PT_Correl, PT_Correl_P-Value, Inferred_Mechanism, Combined_P-value

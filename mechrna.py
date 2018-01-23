@@ -19,7 +19,7 @@ class bcolors:
 class pipeline:
 	mechrna = os.path.dirname(os.path.realpath(__file__)) + "/mechrna.py"
 	graphprot   = os.path.dirname(os.path.realpath(__file__)) + "/bin/graphprot_profile_prediction.pl"
-	intarna  = os.path.dirname(os.path.realpath(__file__)) + "/bin/IntaRNA"
+	intarna  = os.path.dirname(os.path.realpath(__file__)) + "/IntaRNA/src/bin/IntaRNA"
 	intarna_pvalues  = "Rscript " + os.path.dirname(os.path.realpath(__file__)) + "/bin/intarna_pvals_gamma.R"
 	inference  = "python " + os.path.dirname(os.path.realpath(__file__)) + "/bin/infer.py"
 	workdir  = os.path.dirname(os.path.realpath(__file__))
