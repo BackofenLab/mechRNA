@@ -15,25 +15,27 @@ MechRNA is a computational tool for integration RNA-RNA interactions, RNA-Protei
 
 2. Clone or download MechRNA:
 
-	git clone --recursive https://bitbucket.org/compbio/mechrna.git
+		git clone --recursive https://bitbucket.org/compbio/mechrna.git
+		
 
 3. Build [IntaRNA2](https://github.com/BackofenLab/IntaRNA)
 
-	cd ./mechrna/IntaRNA
-	bash ./autotools-init.sh
-	./configure
-	make
+		cd ./mechrna/IntaRNA
+		bash ./autotools-init.sh
+		./configure
+		make
 	
-Installation is not necessary, MechRNA will use the local executable.
+	Installation is not necessary, MechRNA will use the local executable.
+	
 
 4. Download the required data into /mechrna/data/ which can found [here](https://zenodo.org/record/1115534/files/mechrna.data.grch38.tar.gz). The file structure should be as shown below:
 
-	/mechrna/data/
-	/mechrna/data/correlation/
-	/mechrna/data/peaks/
-	/mechrna/data/refs/
+		/mechrna/data/
+		/mechrna/data/correlation/
+		/mechrna/data/peaks/
+		/mechrna/data/refs/
 	
-For screening mode, please also download the [correlation file](https://zenodo.org/record/1115534) for your cancer type of interest. This file should be placed in the /mechrna/data/correlations/ folder.
+	For screening mode, please also download the [correlation file](https://zenodo.org/record/1115534) for your cancer type of interest. This file should be placed in the /mechrna/data/correlations/ folder.
 
 ### How do I run MechRNA?
 You can use 
