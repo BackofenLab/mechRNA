@@ -35,7 +35,7 @@ Installation is not necessary, MechRNA will use the local executable.
 
 ```
 /mechrna/data/
-/mechrna/data/correlations/
+/mechrna/data/correlation/
 /mechrna/data/peaks/
 /mechrna/data/refs/
 
