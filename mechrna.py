@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 #786 
+from __future__ import print_function
 
-import os, sys, errno, argparse, subprocess, fnmatch, ConfigParser, time, stat, datetime, math
+import os, sys, errno, argparse, subprocess, fnmatch, configparser, time, stat, datetime, math
 
-#from __future__ import print_function
 #############################################################################################
 # Class for colored texts and binary path
 class bcolors:
@@ -24,14 +24,15 @@ class pipeline:
 	inference  = "python " + os.path.dirname(os.path.realpath(__file__)) + "/bin/infer.py"
 	workdir  = os.path.dirname(os.path.realpath(__file__))
 	datadir  = os.path.dirname(os.path.realpath(__file__)) + "/data/"
+	seqdir  = os.path.dirname(os.path.realpath(__file__)) + "/sequences/"
 	# example usage for help
-	example  = "\tTo create a new screening mode project: specify (1) project name and (2) lncRNA sequence (3) correlation file\n"
-	example += "\t$ ./mechrna.py -p my_project -l my_rna.fa -c ./data/correlation/correl.genenet.[cancer_type].tcga\n"	
-	example += "\n\n\tTo create a new hypothesis-driven mode project: specify (1) project name and (2) lncRNA sequence (3) target/rbps/mechanisms files\n"
-	example += "\t$ ./mechrna.py -p my_project -l my_rna.fa -a [-T my_targets] [-B my_rbps] [-M my_mechanisms]\n"
+	example  = "\tTo create a new screening mode project: specify (1) project name and (2) lncRNA transcript ID (3) correlation file\n"
+	example += "\t$ python mechrna.py -p my_project -l ENSTXXXXXXXXXXX -c ./data/correlation/correl.genenet.[cancer_type].tcga\n"	
+	example += "\n\n\tTo create a new hypothesis-driven mode project: specify (1) project name and (2) lncRNA transcript ID (3) target/rbps/mechanisms files\n"
+	example += "\t$ python mechrna.py -p my_project -l ENSTXXXXXXXXXXX -a [-T my_targets] [-B my_rbps] [-M my_mechanisms]\n"
 	example += "\n\n\tTo resume a project, just type project folder and mechrna.py will automatically resume from the previous stages:\n"
-	example += "\t$ ./mechrna.py -p my_project\n"
-	example += "\t$ ./mechrna.py -p /home/this/is/my/folder/project\n\n"
+	example += "\t$ python mechrna.py -p my_project -l ENSTXXXXXXXXXXX --resume\n"
+	example += "\t$ python mechrna.py -p /home/this/is/my/folder/project -l ENSTXXXXXXXXXXX --resume\n\n"
 
 
 #############################################################################################
@@ -50,7 +51,7 @@ def command_line_process():
 	parser.add_argument('--lncRNA', '-l',
 		required=True,
 		metavar='lncRNA',
-		help='Fasta file of lncRNA of interest.'
+		help='Ensembl transcript ID (ENSTXXXXXXXXXXX) of lncRNA .'
 	)
 	parser.add_argument('--reference','-r',
 		metavar='reference',
@@ -66,15 +67,15 @@ def command_line_process():
 	)
 	parser.add_argument('--targets','-T',
 		metavar='targets',
-		help='File with ensembl gene IDs'
+		help='File with ensembl transcript IDs. (all if not specified)'
 	)
 	parser.add_argument('--rbps', '-B',
 		metavar='rbps',
-		help='List of RNA binding proteins to include in the analysis.'
+		help='List of RNA binding proteins to include in the analysis. (format: ENSGXXXXXXXXXXX;[GeneSymbol] , all if not specified)'
 	)
 	parser.add_argument('--mechs', '-M',
 		metavar='mechs',
-		help='List of mechanisms to include in the analysis.'
+		help='List of mechanisms to include in the analysis. (see mechs.list, all if not specified)'
 	)
 	parser.add_argument('--topX','-x',
 		type=int,
@@ -88,7 +89,7 @@ def command_line_process():
 	parser.add_argument('--peak-cutoff','-P',
 		type=float,
 		metavar='peak_cutoff',
-		help="P-value cutoff for protein binding peaks. (default: 0.01)",
+		help="P-value cutoff for protein binding peaks. (default: 1)",
 	)
 	parser.add_argument('--max-loop','-L',
 		type=int,
@@ -129,12 +130,6 @@ def command_line_process():
 		metavar='num_worker',
 		help='Number of independent prediction jobs which will be created. (default: 1)',
 	)
-	parser.add_argument('--range',
-		help='Intervals of sequences in targets file to be analyzed.',
-	)
-	parser.add_argument('--worker-id',
-		help='Specific worker ID that the user wants to run prediction in the last stage. (default:-1, will run on all workers)',
-	)
 	parser.add_argument('--mode',
 		metavar='engine_mode',
 		help='Type for running indepedent jobs: normal, sge, or pbs. (default: normal).',
@@ -145,12 +140,18 @@ def command_line_process():
 		default='1'
 	)
 	parser.add_argument('--job-max-time',
-		help='Max job running time in PBS file. Read documents before changing its value! (default: 24 hour.)',
+		help='Max job running time in PBS file. Read documents before changing its value! (default: 24:00:00.)',
 		default='24:00:00'
 	)
 	parser.add_argument('--job-max-memory',
-		help='Max job memory in PBS file. Read docuemnts before changing its value! (default: 8 GB.)',
+		help='Max job memory in PBS file. Read docuemnts before changing its value! (default: 8G.)',
 		default='8G'
+	)
+	parser.add_argument('--range',
+		help='Intervals of sequences in targets file to be analyzed. (Used for cluster job distribution, do not modify)',
+	)
+	parser.add_argument('--worker-id',
+		help='Specific worker ID that the user wants to run prediction in the last stage. (Used for cluster job distribution, do not modify)',
 	)
 
 	return parser
@@ -159,14 +160,14 @@ def command_line_process():
 ### get the system shell to run the command and pipe stdout to control file when log==True
 def log( msg, output=True ):
 	if output:
-		print "{0}".format(msg),
+		print(msg, end='')
 		sys.stdout.flush()
 	
 #############################################################################################
 ### get the system shell to run the command and pipe stdout to control file when log==True
 def logln( msg, output=True ):
 	if output:
-		print "{0}".format(msg)
+		print(msg)
 		sys.stdout.flush()
 
 #############################################################################################
@@ -305,7 +306,7 @@ def IsJobExpired( filename, PBS_TIME):
 	# The time of PBS time
 	t_list = PBS_TIME.split(":")
 	if 3 != len(t_list):
-		print "Can not parse PBS TIME. Please supply in DD:MM:SS format"
+		print("Can not parse PBS TIME. Please supply in DD:MM:SS format")
 		exit(1)
 	
 	pbs_hours = t_list[0]
@@ -335,7 +336,7 @@ def generate_merge_script( config, num_worker ):
 			f_script.write("#!/bin/bash\n")
 			cmd = 'FILE={0}.results\nif [ -f $FILE ]; then rm -f ${{FILE}}; fi & touch ${{FILE}}\n'.format( output_prefix )
 			f_script.write("{0}\n".format(cmd))
-			for i in xrange( num_worker):
+			for i in range( num_worker):
 				f_script.write("part_info={0}_{1}; if [ -f ${{part_info}} ]; then cat ${{part_info}} | grep -E -v 'id1|INFO|WARN' | sed \"s,\x1B\[[0-9;]*[a-zA-Z],,g\" >> ${{FILE}}; else printf \"Missing File %s\\n\" ${{part_info}};fi\n".format(worker_prefix, i))
 		f_script.close()
 		st = os.stat((pipeline.workdir + "/merge_output.sh"))
@@ -346,7 +347,7 @@ def generate_merge_script( config, num_worker ):
 			cmd = "cat {0} | xargs -I CMD --max-procs={1} bash -c CMD\n".format(job_file, num_worker )
 			cmd += 'FILE={0}.results\nif [ -f $FILE ]; then rm -f ${{FILE}}; fi & touch ${{FILE}}\n'.format( output_prefix )
 			f_script.write("{0}\n".format(cmd))
-			for i in xrange( num_worker):
+			for i in range( num_worker):
 				f_script.write("part_info={0}_{1}; if [ -f ${{part_info}} ]; then cat ${{part_info}} | grep -E -v 'id1|INFO|WARN' | sed \"s,\x1B\[[0-9;]*[a-zA-Z],,g\" >> ${{FILE}}; else printf \"Missing File %s\\n\" ${{part_info}};fi\n".format(worker_prefix, i))
 		f_script.close()
 		st = os.stat(script_file)
@@ -477,7 +478,7 @@ def assign_worker(config):
 		with open('{0}'.format(output_file), 'w') as fj:
 			fj.write("#!/bin/bash\n")
 		
-		for i in xrange(maxjobs):
+		for i in range(maxjobs):
 
 			complete_file = "{0}/stage/03.intarna.{1}.finished".format(workdir, i);
 			if( not os.path.isfile(complete_file)):
@@ -517,6 +518,8 @@ def assign_worker(config):
 				else:
 					maxjobs = i
 					config.set("project","num-worker",str(maxjobs))
+					with open ( workdir +"/project.config", "w") as configFile:
+						config.write(configFile)
 					break
 
 			else:
@@ -538,7 +541,7 @@ def submit_intarna_jobs(config):
 	failed=0
 	running=0
 	engine_mode = config.get("intarna", "engine-mode")
-	for i in xrange(maxjobs):
+	for i in range(maxjobs):
 		if("pbs" ==  engine_mode):
 			worker_cmd = "{0}/pbs/intarna_{1}.pbs".format(workdir,i)
 		elif("sge" == engine_mode):
@@ -585,7 +588,7 @@ def run_command(config, force=False):
 		#shell(msg, True, cmd)
 		submit_intarna_jobs(config)
 		logOK()
-		print "Waiting for jobs to complete",
+		print("Waiting for jobs to complete"),
 		sys.stdout.flush()
 
 		jobs_finished = False;
@@ -594,11 +597,10 @@ def run_command(config, force=False):
 			maxjobs = 1 
 
 		while(not jobs_finished):
-			time.sleep(60)
 			jobs_finished = True
 			sys.stdout.write('.')
 			sys.stdout.flush()
-			for i in xrange(maxjobs):
+			for i in range(maxjobs):
 				complete_file = "{0}/stage/03.intarna.{1}.finished".format(pipeline.workdir, i);
 				pbs_log=pipeline.workdir+'/log/intarna_{0}.o'.format(i)
 				pbs_err= pipeline.workdir+'/log/intarna_{0}.e'.format(i)
@@ -608,6 +610,7 @@ def run_command(config, force=False):
 
 				if not st == 1:
 					jobs_finished = False
+			time.sleep(60)
 
 		logOK()
 		msg = "\nMerging {0} output files".format(int( config.get("project", "num-worker") ))
@@ -616,7 +619,7 @@ def run_command(config, force=False):
 		logOK()
 
 	inference(config)
-	print "Done"
+	print("Done")
 
 #############################################################################################
 def mkdir_p(path):
@@ -624,7 +627,7 @@ def mkdir_p(path):
 		os.makedirs(path)
 	except OSError as e:
 		if e.errno == errno.EEXIST and os.path.isdir(path):
-			print "[ERROR] The project folder exists. Please run in resume mode or delete the project folder to re-run from scartch"
+			print("[ERROR] The project folder exists. Please run in resume mode or delete the project folder to re-run from scartch")
 			exit(1);
 
 #############################################################################################
@@ -633,7 +636,7 @@ def symlink(src, dest):
 	if src == '':
 		return
 	if not os.path.isfile(src):
-		print "[ERROR] Input file {0} does not exist".format(src)
+		print("[ERROR] Input file {0} does not exist".format(src))
 		exit(1)
 	basename = os.path.basename(src)
 	dest=os.path.abspath(dest)+'/'+basename
@@ -647,7 +650,7 @@ def symlink_name(src, dest, filename ):
 	if src == '':
 		return
 	if not os.path.isfile(src):
-		print "[ERROR] Input file {0} does not exist".format(src)
+		print("[ERROR] Input file {0} does not exist".format(src))
 		exit(1)
 	basename = os.path.basename(filename)
 	dest=os.path.abspath(dest)+'/'+basename
@@ -661,7 +664,7 @@ def symlink_dir(src, dest):
 	if src == '':
 		return
 	if not os.path.isdir(src):
-		print "[ERROR] Input dir {0} does not exist".format(src)
+		print("[ERROR] Input dir {0} does not exist".format(src))
 		exit(1)
 	#do something
 	basename = os.path.basename(os.path.normpath(src))
@@ -690,42 +693,52 @@ def check_binary_preq():
 
 		if(not installed):
 			if(exe == 'IntaRNA'):
-				print "[ERROR] {0} cannot be executed. Please use 'make' to build the required binary and move it into the \"bin\" directory.".format(exe)
 				logFAIL()
-				logln ("{0} cannot be executed. Please use 'make' to build the required binary.".format(exe) )
+				logln ("{0} cannot be executed. Please use 'make' to build the required binary and move it into the \"bin\" directory.".format(exe) )
 			else:
-				print "[ERROR] File {0} is not installed in system PATH or in {1}".format(exe, os.path.dirname(os.path.realpath(__file__)) + "/bin/")
 				logFAIL()
 				logln ("File {0} is not installed in system PATH or in {1}".format(exe, os.path.dirname(os.path.realpath(__file__)) + "/bin/") )
 			exit(1)
-#TODO check for R packages: evd, 
-
 	logOK()
 
 #############################################################################################
 def resume_state_help():
-	print "\nMechRNA supports the following resume states:"
+	print("\nMechRNA supports the following resume states:")
 	#print "\tgraphprot: computes protein binding sites on the lncRNA"
-	print "\tintarna: predicts RNA-RNA interactions"
-	print "\tinference: determines potential mechanism using correlation and relative locations of interactions"
-	print "\tnum-worker: generate jobs for parallel processing"
-	print "\nNOTE\tIf you want to automatically resume a killed job, just type --resume"
+	print("\tnum-worker: generate jobs for parallel processing")
+	print("\tintarna: predicts RNA-RNA interactions")
+	print("\tinference: determines potential mechanism using correlation and relative locations of interactions")
+	#print("\nNOTE\tIf you want to automatically resume a killed job, just type --resume")
 
-#############################################################################################
-# Checking if necessary files are provided for a NEW project.
-def check_input_preq( config ):
-	workdir = pipeline.workdir
-
-	if (None == config.get("project", "lncRNA") ) or (not os.path.isfile( config.get("project", "lncRNA") ) ):
-		logFAIL()
-		logln("The lncRNA sequence file, {0}, does not exist. Please provide valid name or path.".format( config.get("project", "lncRNA") ))
-		exit(1)
 
 #############################################################################################
 ########## Initialze mrsfast parameters for before creating project folder
 def initialize_config_graphprot( config, args):
 	config.add_section("graphprot")
-	config.set("graphprot", "rbps", str( args.rbps ) if args.rbps != None else  "data/models.list".format(pipeline.datadir))
+
+	if(not os.path.isfile( "{0}/models.list".format(pipeline.datadir)) ):
+		logFAIL()
+		logln("The default RBP models file does not appear to exist. Please download the file (https://zenodo.org/record/1115534/) and/or ensure it is located in the /mechrna/data folder.")
+		exit(1)
+
+	if(args.rbps != None):
+		supported_models = dict()
+		with open("{0}/models.list".format(pipeline.datadir), 'r') as models_in:
+			for line in models_in:
+				supported_models[line[:-1]] = True
+				
+		if(not os.path.isfile( str(args.rbps)) ):
+			logFAIL()
+			logln("The RBP models file, {0}, does not exist. Please provide valid name or path.".format( str(args.rbps)))
+			exit(1)
+		with open(str(args.rbps), 'r') as models_in:
+			for line in models_in:
+				if(line[:-1] not in supported_models):
+					logFAIL()
+					logln("The RBP model, {0}, is unsupported (see models.list) or incorrectly formatted (ENSGXXXXXXXXXXX;[GeneSymbol]) ".format( line[:-1]))
+					exit(1)
+
+	config.set("graphprot", "rbps", str( args.rbps ) if args.rbps != None else  "{0}/models.list".format(pipeline.datadir))
 	config.set("graphprot", "model-dir", "{0}/models".format(pipeline.datadir))
 	return config #TODO structue vs sequnence model
 
@@ -734,34 +747,90 @@ def initialize_config_graphprot( config, args):
 def initialize_config_intarna( config, args):
 	workdir = pipeline.workdir
 	config.add_section("intarna")
+
+	# Let IntaRNA handle these
 	config.set("intarna", "max-loop", str( args.max_loop ) if args.max_loop != None else  "150")
 	config.set("intarna", "window", str( args.window ) if args.window != None else "200")
 	config.set("intarna", "suboptimals", str( args.suboptimals ) if args.suboptimals !=None else "4")
 	config.set("intarna", "tRegionLenMax", str( args.tRegionLenMax ) if args.tRegionLenMax !=None else "1500")
 	config.set("intarna", "qRegionLenMax", str( args.qRegionLenMax ) if args.qRegionLenMax !=None else "0")
 	config.set("intarna", "targets", "data/refs/ensembl.{0}.ncrna.cdna.40.full".format(config.get("project", "reference")))
-	config.set("intarna", "mechs", str( args.mechs ) if args.mechs != None else  "data/mechs.list".format(pipeline.datadir))
+
+	# Check mechanism list
+	if(not os.path.isfile( "{0}/mechs.list".format(pipeline.datadir)) ):
+		logFAIL()
+		logln("The default mechanism file does not appear to exist. Please download the file (https://zenodo.org/record/1115534/) and/or ensure it is located in the /mechrna/data folder.")
+		exit(1)
+
+	if(args.mechs != None):
+		supported_mechs = dict()
+		with open("{0}/mechs.list".format(pipeline.datadir), 'r') as mechs_in:
+			for line in mechs_in:
+				supported_mechs[line[:-1]] = True
+				
+		if(not os.path.isfile( str(args.mechs)) ):
+			logFAIL()
+			logln("The mechanism file, {0}, does not exist. Please provide valid name or path.".format( str(args.mechs)))
+			exit(1)
+		with open(str(args.mechs), 'r') as mechs_in:
+			for line in mechs_in:
+				if(line[:-1] not in supported_mechs):
+					logFAIL()
+					logln("The mechanism, {0}, is unsupported. See \"mechs.list\" for supported mechanisms.".format( line[:-1]))
+					exit(1)
+
+	config.set("intarna", "mechs", str( args.mechs ) if args.mechs != None else  "{0}/mechs.list".format(pipeline.datadir))
+
+	# Check Cluster Engine modes
+	if ((args.mode != None) and (args.mode != "normal") and (args.mode != "pbs") and (args.mode != "sge")):
+		logFAIL()
+		logln("Invalid distribution specified. Please use \"normal\" or \"pbs\" or \"sge\"")
+		exit(1)
 	config.set("intarna","engine-mode",args.mode if args.mode != None else "normal")
+
+
+	#Check Num CPUS
+	if(args.job_num_cpus != None):
+		try:
+			if(int(args.job_num_cpus) < 0):
+				logln("Number of cpus per job must be a positive integer.")
+				exit(1)
+		except ValueError:
+			logFAIL()
+			logln("Number of cpus per job must be a positive integer.")
+			exit(1)
+	config.set("intarna","job-cpus", str(args.job_num_cpus) if args.job_num_cpus != None else "1")
+
+	#Check job time
+	if(args.job_max_time != None):
+		if(len((str(args.job_max_time)).split(":")) != 3): #TODO do this better
+			logFAIL()
+			logln("Max job time must be in ##:##:## format.")
+			exit(1)
+
+	config.set("intarna","job-time", str(args.job_max_time) if args.job_max_time != None else "24:00:00")
+
+	# Check job memory 
+	#TODO
+
+	config.set("intarna","job-memory",str(args.job_max_memory) if args.job_max_memory != None else "8G")
 	config.set("intarna","range", str( args.range ) if args.range !=None else "-1" )
 	config.set("intarna","worker-id", str(args.worker_id) if args.worker_id != None else "-1")
-	config.set("intarna","job-cpus", str(args.job_num_cpus) if args.job_num_cpus != None else "1")
-	config.set("intarna","job-time", str(args.job_max_time) if args.job_max_time != None else "24:00:00")
-	config.set("intarna","job-memory",str(args.job_max_memory) if args.job_max_memory != None else "8G")
 	return config
 
 #############################################################################################
 def check_project_preq():
 	args = command_line_process().parse_args()
-	config = ConfigParser.ConfigParser()
+	config = configparser.ConfigParser()
 	
 	project_name = os.path.basename(os.path.normpath(args.project))
 	pipeline.workdir = os.path.abspath(args.project)
 	workdir = pipeline.workdir
 
-	print "============================================="
-	print "Project Name      : "+bcolors.OKGREEN+project_name+bcolors.ENDC
-	print "Working Directory : "+bcolors.OKGREEN+workdir+bcolors.ENDC
-	print "============================================="
+	print("=============================================")
+	print("Project Name      : "+bcolors.OKGREEN+project_name+bcolors.ENDC)
+	print("Working Directory : "+bcolors.OKGREEN+workdir+bcolors.ENDC)
+	print("=============================================")
 	
 	# Check if users want to resume the project
 	if ( os.path.isdir( workdir)):
@@ -788,31 +857,118 @@ def check_project_preq():
 	else:
 		log("Creating a new project folder...")
 
+		config.add_section("project")
+		config.set("project", "name", project_name)
+		config.set("project", "apriori", str(args.apriori))
+
+		#Check reference
 		if ((args.reference != None) and (args.reference != "GRCh37.75") and (args.reference != "GRCh38.86")):
 			logFAIL()
 			logln("Invalid reference specified. Please use \"GRCh37.75\" or \"GRCh38.86\"")
 			exit(1)
 
-		# set up main project parameter
-		config.add_section("project")
-		config.set("project", "name", project_name)
-		config.set("project", "lncRNA", args.lncRNA)
 		config.set("project", "reference", str(args.reference) if args.reference != None else "GRCh38.86")
-		config.set("project", "apriori", str(args.apriori))
-		config.set("project", "targets", str(args.targets) if args.targets != None else None) 
+
+		#Check Num Worker
+		if(args.num_worker != None):
+			try:
+				if(int(args.num_worker) < 0):
+					logln("Number of workers must be a positive integer.")
+					exit(1)
+			except ValueError:
+				logFAIL()
+				logln("Number of workers must be a positive integer.")
+				exit(1)
 		config.set("project", "num-worker", str(args.num_worker) if args.num_worker != None else "1" )
+
+		#Check TopX
+		if(args.topX != None):
+			try:
+				if(float(args.topX) < 0):
+					logln("Top percent interactions must be positive.")
+					exit(1)
+			except ValueError:
+				logFAIL()
+				logln("Top percent interactions must be a number ( X% ).")
+				exit(1)
 		config.set("project", "topX", str(args.topX) if args.topX != None else "2" )
+		
+		#Check distribution
+		if ((args.dist != None) and (args.reference != "gamma") and (args.reference != "gev")):
+			logFAIL()
+			logln("Invalid distribution specified. Please use \"gamma\" or \"gev\"")
+			exit(1)
 		config.set("project", "dist", args.dist if args.dist != None else "gamma" )
+
+		#Check Correlation
+		if (not (config.get("project", "apriori") == "True") and not os.path.isfile(str(args.correlation) )):
+			logFAIL()
+			logln("Correlation file not found. Please specify correlation file or enable --apriori option.")
+			exit(1)
 		config.set("project", "correlation", str(args.correlation) if args.correlation != None else "None" )
-		config.set("project", "peak-cutoff", str(args.peak_cutoff) if args.peak_cutoff != None else "0.01" )
+
+		#Check peak cutoff
+		if(args.peak_cutoff != None):
+			try:
+				float(args.peak_cutoff)
+			except ValueError:
+				logFAIL()
+				logln("Peak cutoff must be numeric.")
+				exit(1)
+		config.set("project", "peak-cutoff", str(args.peak_cutoff) if args.peak_cutoff != None else "1" )
 
 		# Parameters for other parts in the pipeline
 		initialize_config_graphprot(config, args)
 		initialize_config_intarna(config, args)
+
+		# Generate lncRNA and targets files
+		geneIDsfile = args.targets
+		reffile = config.get("intarna", "targets")
+		geneIDs = set()
 		
-		#validating required files according to mode
-		check_input_preq(config)
-		
+		if(geneIDsfile != None):
+			writer_targets = open(pipeline.seqdir+"/targets.fa", 'w')
+			with open(geneIDsfile, 'r') as geneIDs_in:
+				for line in geneIDs_in:
+					geneIDs.add(line[:-1])
+
+		if(geneIDsfile != None or not os.path.isfile(pipeline.seqdir+"/"+args.lncRNA+".fa") ):
+			writer_lncRNA = open(pipeline.seqdir+"/"+args.lncRNA+".fa", 'w')
+			found_t = False
+			found_l = False
+
+			with open(reffile, 'r') as ref_in:
+				for line in ref_in:
+					if(line[0] == '>'):
+						trans_id = line.split(";")[0][1:]
+						if(geneIDsfile != None and trans_id in geneIDs):
+							writer_targets.write(line)
+							writer_targets.write(next(ref_in))
+							found_t = True
+						if(trans_id == str(args.lncRNA)):
+							writer_lncRNA.write(line)
+							writer_lncRNA.write(next(ref_in))
+							found_l = True
+							if(geneIDsfile == None):break
+			writer_lncRNA.close()
+		else:
+			found_l = True;
+
+		if(geneIDsfile != None):
+			if(not found_t):
+				logFAIL()
+				logln("None of the specified targets appear to exist in "+str(args.reference)+", or they are incorrectly formatted (ENSTXXXXXXXXXXX).")
+				exit(1)
+			writer_targets.close()
+			config.set("intarna", "targets", pipeline.seqdir+"targets.fa")
+			
+
+		if(not found_l):
+			logFAIL()
+			logln("The input lncRNA transcript ID does not appear to exist in "+str(args.reference)+", or is incorrectly formatted (ENSTXXXXXXXXXXX).")
+			exit(1)
+		config.set("project", "lncRNA", pipeline.seqdir+args.lncRNA+".fa")
+
 		# creating project folder
 		mkdir_p(workdir)
 		mkdir_p(workdir +'/jobs');
@@ -821,43 +977,18 @@ def check_project_preq():
 		mkdir_p(workdir +'/stage');
 		symlink_dir(pipeline.datadir,  workdir)
 
-		# Generate targets file
-		geneIDsfile = config.get("project", "targets") 
-		reffile = config.get("intarna", "targets")
-		geneIDs = set()
-		
-		if(geneIDsfile != None):
-			writer = open(pipeline.workdir+"/targets.fa", 'w')
-			with open(geneIDsfile, 'r') as geneIDs_in:
-				for line in geneIDs_in:
-					geneIDs.add(line[:-1])
-
-			with open(reffile, 'r') as ref_in:
-				for line in ref_in:
-					if(line[0] == '>'):
-						trans_id = line.split(";")[0][1:]
-						if(trans_id in geneIDs):
-							writer.write(line)
-							writer.write(next(ref_in))
-			writer.close()
-			config.set("intarna", "targets", pipeline.workdir+"/targets.fa")
-			config.set("intarna", "targets", os.path.basename(config.get("intarna", "targets")))
-
-		if (not (config.get("project", "apriori") == "True") and not os.path.isfile(config.get("project", "correlation"))):
-			logFAIL()
-			logln("Correlation file not found. Please specify correlation file or enable --apriori option.")
-			exit(1)
-
-		if args.mechs != None:
-			symlink(config.get("intarna","mechs"),  workdir)
-			config.set("intarna", "mechs", os.path.basename(config.get("intarna", "mechs")))
-
-		if args.rbps != None:
-			symlink(config.get("graphprot","rbps"),  workdir)
-			config.set("graphprot", "rbps", os.path.basename(config.get("graphprot", "rbps")))
-
-		symlink(config.get("project", "lncRNA"),  workdir)
+		# Create symlinks
+		symlink(config.get("project","lncRNA"),  workdir)
 		config.set("project", "lncRNA", os.path.basename(config.get("project", "lncRNA")))
+
+		symlink(config.get("intarna","targets"),  workdir)
+		config.set("intarna", "targets", os.path.basename(config.get("intarna", "targets")))
+	
+		symlink(config.get("intarna","mechs"),  workdir)
+		config.set("intarna", "mechs", os.path.basename(config.get("intarna", "mechs")))
+
+		symlink(config.get("graphprot","rbps"),  workdir)
+		config.set("graphprot", "rbps", os.path.basename(config.get("graphprot", "rbps")))
 
 		# creating config in folder
 		with open ( workdir +"/project.config", "w") as configFile:
@@ -867,8 +998,9 @@ def check_project_preq():
 	return config
 #############################################################################################
 def main():
-	config = check_project_preq()
+
 	check_binary_preq()
+	config = check_project_preq()
 
 	resume_state="intarna"
 
@@ -880,7 +1012,7 @@ def main():
 		else:
 			raise Exception('Invalid mode selected: ' + mode)
 	except subprocess.CalledProcessError as e:
-		print >>sys.stderr, "{0} failed with exit status {2} and message {1}".format(e.cmd, 'N/A', e.returncode)
+		sys.stderr.write("{0} failed with exit status {2} and message {1}".format(e.cmd, 'N/A', e.returncode))
 
 #############################################################################################
 if __name__ == "__main__":

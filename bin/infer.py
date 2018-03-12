@@ -1,8 +1,12 @@
-import sys, getopt, sets, os
+from __future__ import print_function
+import sys, getopt, os
 import statsmodels.api as sm
 import subprocess
 
-from sets import Set
+try:
+	set
+except NameError:
+	from sets import Set as set
 from scipy import stats
 import numpy as np
 from statsmodels.stats.multitest import multipletests, _ecdf as ecdf, fdrcorrection as fdrcorrection0, fdrcorrection_twostage
@@ -56,7 +60,7 @@ class Candidate:
 		if(float(self.t_peak.correl.pvalue) != 1): pvalues.append(float(self.t_peak.correl.pvalue))
 		if(float(self.l_peak.pvalue) != 1): pvalues.append(float(self.l_peak.pvalue))
 		if(float(self.l_peak.correl.pvalue) != 1): pvalues.append(float(self.l_peak.correl.pvalue))
-		for i in xrange(len(pvalues)):
+		for i in range(len(pvalues)):
 			if(pvalues[i] == 0):
 				pvalues[i] = float(1e-22)
 		return pvalues
@@ -155,13 +159,16 @@ class Correlation:
 #######################################################
 
 def sort_key(item):
-	return float(item.split(';')[14][:-1])
+	return float(item.decode().split(';')[14][:-1])
 
 def sort_key_p(item):
-	return float(item.split('\t')[35][:-1]) #(len(item)-1)
+	return float(item.decode().split('\t')[35][:-1]) #(len(item)-1)
 
 def sort_key_id(item):
-	return float(item.split('\t')[0])
+	return float(item.decode().split('\t')[0])
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
 
 def merge(chunks,key=None):
 	if key is None:
@@ -172,7 +179,7 @@ def merge(chunks,key=None):
 	for index, chunk in enumerate(chunks):
 		try:
 			iterator = iter(chunk)
-			value = iterator.next()
+			value = next(iterator)
 		except StopIteration:
 			try:
 				chunk.close()
@@ -187,7 +194,7 @@ def merge(chunks,key=None):
 		k, index, value, iterator, chunk = heappop(values)
 		yield value
 		try:
-			value = iterator.next()
+			value = next(iterator)
 		except StopIteration:
 			try:
 				chunk.close()
@@ -216,8 +223,8 @@ def filter(repeatsfile, inputfile, outputfile):
 				l = l + 1
 
 				if(tokens[0] == trans_id):
-					print "Masking: " + tokens[1] + " " + tokens[2]
- 					repeats.append(tokens[1:3])
+					print("Masking: " + tokens[1] + " " + tokens[2])
+					repeats.append(tokens[1:3])
 				elif(len(repeats) > 0):
 					break
 
@@ -245,7 +252,8 @@ def batch_sort(input,output,key=None,buffer_size=32000,tempdirs=[]):
 	if not tempdirs:
 		tempdirs.append(gettempdir())
 	
-	input_file = file(input,'rb',64*1024)
+	#input_file = file(input,'rb',64*1024)
+	input_file = open(input,'rb',64*1024)
 	try:
 		input_iterator = iter(input_file)
 		
@@ -255,14 +263,15 @@ def batch_sort(input,output,key=None,buffer_size=32000,tempdirs=[]):
 				current_chunk = list(islice(input_iterator,buffer_size))
 				if current_chunk:
 					current_chunk.sort(key=key)
-					output_chunk = file(os.path.join(tempdir,'%06i'%len(chunks)),'w+b',64*1024)
+					output_chunk = open(os.path.join(tempdir,'%06i'%len(chunks)),'w+b',64*1024)
 					output_chunk.writelines(current_chunk)
 					output_chunk.flush()
 					output_chunk.seek(0)
 					chunks.append(output_chunk)
 				else:
 					break
-		except:
+		except IOError as e:
+			print("I/O error({0}): {1}".format(e.errno, e.strerror))
 			for chunk in chunks:
 				try:
 					chunk.close()
@@ -279,7 +288,7 @@ def batch_sort(input,output,key=None,buffer_size=32000,tempdirs=[]):
 	finally:
 		input_file.close()
 	
-	output_file = file(output,'wb',64*1024)
+	output_file = open(output,'wb',64*1024)
 	try:
 		output_file.writelines(merge(chunks,key))
 	finally:
@@ -358,16 +367,16 @@ def compute_pvalues(data, energies, index, mode):
 		fit_c, fit_loc, fit_scale = stats.genextreme.fit(eng_back)
 		pvalues = stats.genextreme.sf(eng_obs, fit_c, loc=fit_loc, scale=fit_scale)
 	else:
-		print mode + " distribution not supported."
+		print(mode + " distribution not supported.")
 		sys.exit(1)
 	
 	reject, pvalues_corr = fdrcorrection0(pvalues, is_sorted=True)
 
-	for i in xrange(len(data)):
+	for i in range(len(data)):
 		data[i].pvalue = pvalues[i]
 		data[i].fdr = pvalues_corr[i]
 
-	# for i in xrange(0, len(pvalues_corr)):
+	# for i in range(0, len(pvalues_corr)):
 	# 	print "{0}\t{1}\t{2}".format(str(energies[i]), pvalues[i], pvalues_corr[i]) 
 
 def get_mutation_count(trans_id, start, end):
@@ -508,7 +517,7 @@ def find_functional_domains(cancerfile, interactions, coor1, coor2, writer, type
 
 		if(bin2 > max_bin): max_bin = bin2
 
-		for i in xrange(bin1, bin2+1):
+		for i in range(bin1, bin2+1):
 			if(i in counts):
 				counts[i] = counts[i] + 1
 			else:
@@ -527,18 +536,18 @@ def find_functional_domains(cancerfile, interactions, coor1, coor2, writer, type
 	# 	else:
 	# 		n_count_back = n_count_back + 1
 
-	for i in xrange(0, len(counts)):
+	for i in range(0, len(counts)):
 		if(i not in counts):
 			counts[i] = 0
 
-	counts_list = counts.values()
-	counts_list.sort()
+	counts_list = list(counts.values())
+	sorted(counts_list)
 	arr = np.array(counts_list)
 	mean = np.mean(arr)
 	stdev = np.std(arr)
 	exp = int(mean + 2*stdev)
 
-	for i in xrange(0, max_bin+1):
+	for i in range(0, max_bin+1):
 		if(i in counts):
 			counts[i] = counts[i] + 1
 		else:
@@ -574,7 +583,7 @@ def find_functional_domains(cancerfile, interactions, coor1, coor2, writer, type
 								w_count = w_count + 1
 
 					max_count = 0
-					for i in xrange(d_start, d_end+1):
+					for i in range(d_start, d_end+1):
 						if(int(counts[i]) > int(max_count)): max_count = counts[i]
 
 					c_count = 0
@@ -607,12 +616,12 @@ def main(argv):
 	try:
 		opts, args = getopt.getopt(argv,"hi:r:m:n:c:p:x:d:a:",["ifile=","mfile="])#,"ofile="])
 	except getopt.GetoptError:
-		print 'infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <correlation> -p <peak-cutoff> -x <top-percent> -d <distribution> -a <apriori>'
+		print('infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <correlation> -p <peak-cutoff> -x <top-percent> -d <distribution> -a <apriori>')
 		sys.exit(2)
 
 	for opt, arg in opts:
 		if opt == '-h':
-			print 'infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <cancer> -p <peak-cutoff> -x <top-percent> -d <distribution> -a <apriori>'
+			print('infer.py -i <inputfile> -r <reference> -m <models> -n <mechanisms> -c <cancer> -p <peak-cutoff> -x <top-percent> -d <distribution> -a <apriori>')
 			sys.exit()
 		elif opt in ("-i", "--ifile"):
 			inputfile = arg
@@ -635,6 +644,10 @@ def main(argv):
 				apriori = True
 			else:
 				apriori = False
+
+	if(not os.path.isfile(inputfile) or os.stat(inputfile).st_size == 0):
+		eprint("[ERROR] IntaRNA output file is empty or does not exist. Check log files for errors, or no interactions were found.")
+		exit(1)
 
 	workdir = os.path.dirname(os.path.abspath(inputfile))
 	proteinfile = workdir + "/data/peaks/graphprot.peaks.{0}.sig.pp25".format(ref) 
@@ -670,7 +683,7 @@ def main(argv):
 				indels[tokens[0]] = list()
 			indels[tokens[0]].append(tokens[1:3])
 
-	print "Loading and sorting input file..."
+	print("Loading and sorting input file...")
 
 	if(filter(repeatsfile, inputfile, inputfile+".tmp.filter")):
 		batch_sort(inputfile+".tmp.filter", inputfile+".tmp.sort", key=sort_key)
@@ -687,11 +700,11 @@ def main(argv):
 	all_genes[data[0].l_gene_id] = True
 	all_trans[data[0].l_trans_id] = True
 
-	print "Computing RNA-RNA interaction p-values..."
+	print("Computing RNA-RNA interaction p-values...")
 
 	compute_pvalues(data, energies, index, dist)
 
-	print "Annotating RNA-RNA interactions..."
+	print("Annotating RNA-RNA interactions...")
 
 	with open(annotationfile, 'r') as anno_in:
 		for line in anno_in:
@@ -706,21 +719,21 @@ def main(argv):
 			RR_inter.anno2 = "non-coding"
 		else:
 			
-			if(RR_inter.t_start <= int(anno_data[RR_inter.t_trans_id][0])):
+			if(int(RR_inter.t_start) <= int(anno_data[RR_inter.t_trans_id][0])):
 				RR_inter.anno1 = "5'UTR"
-			elif(RR_inter.t_start >= int(anno_data[RR_inter.t_trans_id][1])):
+			elif(int(RR_inter.t_start) >= int(anno_data[RR_inter.t_trans_id][1])):
 				RR_inter.anno1 = "3'UTR"
 			else:
 				RR_inter.anno1 = "CDS"
 
-			if(RR_inter.t_end <= int(anno_data[RR_inter.t_trans_id][0])):
+			if(int(RR_inter.t_end) <= int(anno_data[RR_inter.t_trans_id][0])):
 				RR_inter.anno2 = "5'UTR"
-			elif(RR_inter.t_end >= int(anno_data[RR_inter.t_trans_id][1])):
+			elif(int(RR_inter.t_end) >= int(anno_data[RR_inter.t_trans_id][1])):
 				RR_inter.anno2 = "3'UTR"
 			else:
 				RR_inter.anno2 = "CDS"
 
-	print "Loading auxiliary files..."
+	print("Loading auxiliary files...")
 
 	with open(upregulatorsfile, 'r') as up_in:
 		for line in up_in:
@@ -759,7 +772,7 @@ def main(argv):
 			mechs.add(mech)
 
 	if(not apriori):
-		print "Loading correlation file..."		
+		print("Loading correlation file...")
 		with open(correlationfile, 'r') as correl_in:
 			for line in correl_in:
 				tokens = line.split()
@@ -780,7 +793,7 @@ def main(argv):
 						correl_proteins_data[model][tokens[0]] = Correlation(["0","1","1","NA"])
 						correl_proteins_data[model][tokens[1]] = Correlation(["0","1","1","NA"])
 
-	print "Loading protein file..."
+	print("Loading protein file...")
 	with open(proteinfile, 'r') as graphprot_in:
 		for line in graphprot_in:
 			tokens = line.split()
@@ -805,6 +818,7 @@ def main(argv):
 							peak_data.insert(3, protein_gene)
 							peak = Protein_Interaction(peak_data, Correlation(["0","1","1","NA"]))
 							peak.mutations = get_mutation_count(trans, peak.start, peak.end)
+							if(float(peak.pvalue) >= float(p_cutoff)): continue
 
 							if gene in correl_proteins_data[model]:
 								peak.correl = correl_proteins_data[model][gene]
@@ -814,7 +828,7 @@ def main(argv):
 							graphprot_data[model][tokens[0]].append(peak)
 
 
-	print "Inferring mechanisms..."
+	print("Inferring mechanisms...")
 
 	writer = open(outputfile, 'w')
 
@@ -892,7 +906,7 @@ def main(argv):
 	#==================================
 
 	if(not apriori):
-		print "Predicting functional domains..."
+		print("Predicting functional domains...")
 
 		writer = open(outputfiledomains, 'w')
 
@@ -909,7 +923,7 @@ def main(argv):
 		
 		writer.close()
 
-	print "Done"
+	print("Done")
 
 if __name__ == "__main__":
 	sys.exit(main(sys.argv[1:]))

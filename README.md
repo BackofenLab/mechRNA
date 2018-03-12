@@ -8,10 +8,11 @@ MechRNA is a computational tool for integration RNA-RNA interactions, RNA-Protei
 1. Ensure you have the required dependancies:
  
 - [ViennaRNA](https://www.tbi.univie.ac.at/RNA/) >= 2.4.3
-- Python version >= 2.7 with packages:
+- Python (tested with version 2.7 and 3.5) with packages:
 	- numpy
 	- scipy
 	- statsmodels
+	- configparser (Python2 only)
 
 2. Clone or download MechRNA:
 
@@ -46,9 +47,25 @@ For screening mode, please also download the [correlation file](https://zenodo.o
 You can use 
 ```
 python mechrna.py -h
+
 ```
 to get a description of each parameter. For more details, please check doc/MechRNA_manual.pdf (coming soon).
 
+To create a new hypothesis-driven mode project: specify (1) project name and (2) lncRNA transcript ID (3) Files listing the targets, rbps, and mechanisms you are intested in (all are used if not specified):
+```
+python mechrna.py -p my_project -l ENSTXXXXXXXXXXX -a [-T my_targets] [-B my_rbps] [-M my_mechanisms]
+
+```
+
+To create a new screening mode project: specify (1) project name and (2) lncRNA transcript ID (3) correlation file:
+```
+python mechrna.py -p my_project -l ENSTXXXXXXXXXXX -c ./data/correlation/correl.genenet.[cancer_type].tcga	
+
+```
+
+The hypothesis-driven mode parameters can also be specified for screening mode. Screening mode is computationally expensive and should be executed with multiple workers [--num-worker] and ideally on a cluster [--mode sge/pbs]. Slurm support coming soon!
+
+Feel free to change **my_project** to any name you want. The TSV file with the prediction results will be generated in **my_project**.
 
 #### Example run with lncRNA 7SL
 
@@ -57,12 +74,9 @@ This is the validation case from Gawronski et. al (DOI: )
 To run MechRNA on this lncRNA, type the following when in the mechrna root directory:
 
 ```
-python mechrna.py -p my_project -l ./sequences/7SL.fa -a -T ./example/7SL.ids -M ./example/7SL.mechs
+python mechrna.py -p my_project -l ENST00000618786 -a -T ./example/7SL.ids -M ./example/7SL.mechs
 
 ```
-
-Feel free to change **my_project** to any name you want. The TSV file with the prediction results will be generated in **my_project**.
-
 
 ---
 
