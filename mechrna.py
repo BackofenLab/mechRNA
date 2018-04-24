@@ -19,7 +19,7 @@ class bcolors:
 class pipeline:
 	mechrna = os.path.dirname(os.path.realpath(__file__)) + "/mechrna.py"
 	graphprot   = os.path.dirname(os.path.realpath(__file__)) + "/bin/graphprot_profile_prediction.pl"
-	intarna  = os.path.dirname(os.path.realpath(__file__)) + "/IntaRNA/src/bin/IntaRNA"
+	intarna  = "IntaRNA"
 	intarna_pvalues  = "Rscript " + os.path.dirname(os.path.realpath(__file__)) + "/bin/intarna_pvals_gamma.R"
 	inference  = "python " + os.path.dirname(os.path.realpath(__file__)) + "/bin/infer.py"
 	workdir  = os.path.dirname(os.path.realpath(__file__))
@@ -68,6 +68,10 @@ def command_line_process():
 	parser.add_argument('--targets','-T',
 		metavar='targets',
 		help='File with ensembl transcript IDs. (all if not specified)'
+	)
+	parser.add_argument('--intarna-exec','-i',
+		metavar='intarna_exec',
+		help='Path to intaRNA executable (if not in PATH).'
 	)
 	parser.add_argument('--rbps', '-B',
 		metavar='rbps',
@@ -488,7 +492,7 @@ def assign_worker(config):
 				if st < nj:
 					ed = min(nj-1, ((int(math.ceil(float(nj) / float(maxjobs)))) * (i + 1)-1))
 					rng = '{0}-{1}'.format(st+1, ed+1)
-					cmd = "python " + pipeline.mechrna + " -p {0} -l {1} --range {2} --worker-id {3} --num-worker 1 --resume intarna \n".format( pipeline.workdir, lncRNA_file, rng, i )
+					cmd = "python " + pipeline.mechrna + " -i {0} -p {1} -l {2} --range {3} --worker-id {4} --num-worker 1 --resume intarna \n".format( pipeline.intarna, pipeline.workdir, lncRNA_file, rng, i )
 					if "sge" == config.get("intarna", "engine-mode"):
 						filename = '{0}/pbs/intarna_{1}.sh'.format(workdir, i)
 						with open(filename, 'w') as fsge:
@@ -680,7 +684,7 @@ def check_binary_preq():
 	execs = ['IntaRNA']#, 'Rscript']#, 'perl']
 	log( "Checking binary pre-requisites... ")
 	for exe in execs:
-		local_exe = os.path.dirname(os.path.realpath(__file__)) + "/bin/" + exe
+		local_exe = pipeline.intarna 
 		installed = False
 		if not is_exec(local_exe):
 			for path in os.environ["PATH"].split(os.pathsep):
@@ -694,7 +698,7 @@ def check_binary_preq():
 		if(not installed):
 			if(exe == 'IntaRNA'):
 				logFAIL()
-				logln ("{0} cannot be executed. Please use 'make' to build the required binary and move it into the \"bin\" directory.".format(exe) )
+				logln ("{0} cannot be executed. Please install the latest version of IntaRNA.".format(local_exe)) 
 			else:
 				logFAIL()
 				logln ("File {0} is not installed in system PATH or in {1}".format(exe, os.path.dirname(os.path.realpath(__file__)) + "/bin/") )
@@ -819,8 +823,7 @@ def initialize_config_intarna( config, args):
 	return config
 
 #############################################################################################
-def check_project_preq():
-	args = command_line_process().parse_args()
+def check_project_preq(args):
 	config = configparser.ConfigParser()
 	
 	project_name = os.path.basename(os.path.normpath(args.project))
@@ -917,12 +920,15 @@ def check_project_preq():
 				exit(1)
 		config.set("project", "peak-cutoff", str(args.peak_cutoff) if args.peak_cutoff != None else "1" )
 
+		config.set("project", "intarna-exec", str(args.intarna_exec) if args.intarna_exec != None else "IntaRNA" )
+
 		# Parameters for other parts in the pipeline
 		initialize_config_graphprot(config, args)
 		initialize_config_intarna(config, args)
 
 		# Generate lncRNA and targets files
 		geneIDsfile = args.targets
+		correlfile = args.correlation
 		reffile = config.get("intarna", "targets")
 		geneIDs = set()
 		
@@ -931,8 +937,17 @@ def check_project_preq():
 			with open(geneIDsfile, 'r') as geneIDs_in:
 				for line in geneIDs_in:
 					geneIDs.add(line[:-1])
+		elif(correlfile != None):
+			writer_targets = open(pipeline.seqdir+"/targets.fa", 'w')
+			with open(correlfile, 'r') as correl_in:
+				for line in correl_in:
+					tokens = line.split()
+					if(float(tokens[2]) != 0):
+						geneIDs.add(tokens[0])
+						geneIDs.add(tokens[1])
 
-		if(geneIDsfile != None or not os.path.isfile(pipeline.seqdir+"/"+args.lncRNA+".fa") ):
+
+		if(geneIDsfile != None or correlfile != None or not os.path.isfile(pipeline.seqdir+"/"+args.lncRNA+".fa") ):
 			writer_lncRNA = open(pipeline.seqdir+"/"+args.lncRNA+".fa", 'w')
 			found_t = False
 			found_l = False
@@ -941,7 +956,12 @@ def check_project_preq():
 				for line in ref_in:
 					if(line[0] == '>'):
 						trans_id = line.split(";")[0][1:]
+						gene_id = line.split(";")[1]
 						if(geneIDsfile != None and trans_id in geneIDs):
+							writer_targets.write(line)
+							writer_targets.write(next(ref_in))
+							found_t = True
+						if(correlfile != None and gene_id in geneIDs):
 							writer_targets.write(line)
 							writer_targets.write(next(ref_in))
 							found_t = True
@@ -954,7 +974,7 @@ def check_project_preq():
 		else:
 			found_l = True;
 
-		if(geneIDsfile != None):
+		if(geneIDsfile != None or correlfile != None):
 			if(not found_t):
 				logFAIL()
 				logln("None of the specified targets appear to exist in "+str(args.reference)+", or they are incorrectly formatted (ENSTXXXXXXXXXXX).")
@@ -998,9 +1018,13 @@ def check_project_preq():
 	return config
 #############################################################################################
 def main():
+	args = command_line_process().parse_args()
+
+	if(args.intarna_exec != None and args.intarna_exec != "IntaRNA"):
+		pipeline.intarna = os.path.abspath(str(args.intarna_exec))
 
 	check_binary_preq()
-	config = check_project_preq()
+	config = check_project_preq(args)
 
 	resume_state="intarna"
 
