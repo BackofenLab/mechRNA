@@ -6,13 +6,13 @@ MechRNA is a computational tool for integration RNA-RNA interactions, RNA-Protei
 ### How do I install MechRNA?
 
 1. Ensure you have the required dependancies:
- 
-- [IntaRNA2](https://github.com/BackofenLab/IntaRNA) >= 2.2.0
-- Python (tested with version 2.7 and 3.5) with packages:
-    - numpy
-    - scipy
-    - statsmodels
-    - configparser (Python2 only)
+
+    - [IntaRNA2](https://github.com/BackofenLab/IntaRNA) >= 2.2.0
+    - Python (tested with version 2.7 and 3.5) with packages:
+        - numpy
+        - scipy
+        - statsmodels
+        - configparser (Python2 only)
 
 2. Clone or download MechRNA:
 
