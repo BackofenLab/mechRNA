@@ -16,7 +16,7 @@ MechRNA is a computational tool for integration RNA-RNA interactions, RNA-Protei
 
 2. Clone or download MechRNA:
 
-		git clone https://bitbucket.org/compbio/mechrna.git
+		git clone https://github.com/BackofenLab/mechRNA.git
 		
 
 3. Download the required data into /mechrna/data/ which can found [here](https://zenodo.org/record/1115534/files/mechrna.data.grch38.tar.gz). The file structure should be as shown below:
