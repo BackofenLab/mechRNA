@@ -136,7 +136,7 @@ def command_line_process():
 	)
 	parser.add_argument('--mode',
 		metavar='engine_mode',
-		help='Type for running indepedent jobs: normal, sge, or pbs. (default: normal).',
+		help='Type for running indepedent jobs: normal, slurm, sge, or pbs. (default: normal).',
 		default='normal'
 	)
 	parser.add_argument('--job-num-cpus',
@@ -335,7 +335,7 @@ def generate_merge_script( config, num_worker ):
 	script_file   	= "{0}/run.sh".format(pipeline.workdir )
 	engine_mode 	= config.get("intarna", "engine-mode")
 
-	if(engine_mode == "sge" or engine_mode == "pbs"):
+	if(engine_mode == "sge" or engine_mode == "pbs" or engine_mode == "slurm"):
 		with open( pipeline.workdir + "/merge_output.sh", 'w' ) as f_script:
 			f_script.write("#!/bin/bash\n")
 			cmd = 'FILE={0}.results\nif [ -f $FILE ]; then rm -f ${{FILE}}; fi & touch ${{FILE}}\n'.format( output_prefix )
@@ -510,7 +510,21 @@ def assign_worker(config):
 							fpbs.write("#PBS -N {0}_{1}\n".format(project_name, i))
 							fpbs.write("cd $PBS_O_WORKDIR\n")
 							fpbs.write("{0}".format(cmd))
-						worker_cmd = "qsub {0}/pbs/{1}.pbs\n".format(workdir,i)
+						worker_cmd = "qsub {0}/pbs/intarna_{1}.pbs\n".format(workdir,i)
+					elif "slurm" == config.get("intarna", "engine-mode"):
+						with open('{0}/pbs/intarna_{1}.slurm'.format(workdir, i), 'w') as fpbs:
+							pbs_log=pipeline.workdir+'/log/intarna_{0}.o'.format(i)
+							pbs_err= pipeline.workdir+'/log/intarna_{0}.e'.format(i)
+							fpbs.write("#!/bin/bash\n")
+							fpbs.write("#SBATCH --job-name={0}_{1}\n".format(project_name, i))
+							fpbs.write("#SBATCH --time={0}\n".format(config.get("intarna", "job-time")))
+							fpbs.write("#SBATCH --mem-per-cpu={0}\n".format(config.get("intarna", "job-memory")))
+							fpbs.write("#SBATCH --cpus-per-task={0}\n".format(config.get("intarna", "job-cpus")))
+							fpbs.write("#SBATCH --output={0}\n".format(pbs_log))
+							fpbs.write("#SBATCH --error={0}\n".format(pbs_err))
+							fpbs.write("cd $PBS_O_WORKDIR\n")
+							fpbs.write("{0}".format(cmd))
+						worker_cmd = "sbatch {0}/pbs/intarna_{1}.slurm\n".format(workdir,i)
 					else: # local machine
 						worker_cmd = cmd
 		
@@ -550,6 +564,8 @@ def submit_intarna_jobs(config):
 			worker_cmd = "{0}/pbs/intarna_{1}.pbs".format(workdir,i)
 		elif("sge" == engine_mode):
 			worker_cmd = "{0}/pbs/intarna_{1}.sh".format(workdir,i)
+		elif("slurm" == engine_mode):
+			worker_cmd = "{0}/pbs/intarna_{1}.slurm".format(workdir,i)
 		pbs_log=pipeline.workdir+'/log/intarna_{0}.o'.format(i)
 		pbs_err= pipeline.workdir+'/log/intarna_{0}.e'.format(i)
 		complete_file = "{0}/stage/03.intarna.{1}.finished".format(workdir, i);
@@ -564,6 +580,8 @@ def submit_intarna_jobs(config):
 				shell(" + Submitting intarna_{0}.pbs".format(i),True, "qsub "+worker_cmd+" -o "+pbs_log+' -e '+pbs_err,'',complete_file,'submitted')
 			elif("sge" == engine_mode):
 				shell(" + Submitting intarna_{0}.sh".format(i),True, worker_cmd,'',complete_file,'submitted')
+			elif("slurm" ==  engine_mode):
+				shell(" + Submitting intarna_{0}.slurm".format(i),True, "sbatch "+worker_cmd,'', complete_file,'submitted')
 			submitted=True
 
 	return running,failed
@@ -577,7 +595,7 @@ def run_command(config, force=False):
 	success_message	  = "completed"
 
 	engine_mode = config.get("intarna", "engine-mode")
-	if ( ( "pbs" !=  engine_mode) and ( ( "sge" ) != engine_mode) ):
+	if ( ( "pbs" !=  engine_mode) and ( ( "sge" ) != engine_mode) and ( ( "slurm" ) != engine_mode)):
 		num_parallel = int(config.get("project", "num-worker"))
 		msg = "Running prediction with {0} parallel task(s)".format(num_parallel)
 		cmd = pipeline.workdir+ "/run.sh" 
@@ -786,9 +804,9 @@ def initialize_config_intarna( config, args):
 	config.set("intarna", "mechs", str( args.mechs ) if args.mechs != None else  "{0}/mechs.list".format(pipeline.datadir))
 
 	# Check Cluster Engine modes
-	if ((args.mode != None) and (args.mode != "normal") and (args.mode != "pbs") and (args.mode != "sge")):
+	if ((args.mode != None) and (args.mode != "normal") and (args.mode != "slurm") and (args.mode != "pbs") and (args.mode != "sge")):
 		logFAIL()
-		logln("Invalid distribution specified. Please use \"normal\" or \"pbs\" or \"sge\"")
+		logln("Invalid distribution specified. Please use \"normal\" or \"slurm\" or \"pbs\" or \"sge\"")
 		exit(1)
 	config.set("intarna","engine-mode",args.mode if args.mode != None else "normal")
 
@@ -946,31 +964,38 @@ def check_project_preq(args):
 						geneIDs.add(tokens[0])
 						geneIDs.add(tokens[1])
 
+		lncRNA_file = pipeline.seqdir+"/"+args.lncRNA+".fa";
 
-		if(geneIDsfile != None or correlfile != None or not os.path.isfile(pipeline.seqdir+"/"+args.lncRNA+".fa") ):
-			writer_lncRNA = open(pipeline.seqdir+"/"+args.lncRNA+".fa", 'w')
+		if(geneIDsfile != None or correlfile != None or not os.path.isfile(lncRNA_file) ):
+
+			if(not os.path.isfile(lncRNA_file)):
+				writer_lncRNA = open(lncRNA_file, 'w')
+				found_l = False
+			else:
+				found_l = True
 			found_t = False
-			found_l = False
 
 			with open(reffile, 'r') as ref_in:
 				for line in ref_in:
 					if(line[0] == '>'):
 						trans_id = line.split(";")[0][1:]
 						gene_id = line.split(";")[1]
+						seq = next(ref_in)
+
 						if(geneIDsfile != None and trans_id in geneIDs):
 							writer_targets.write(line)
-							writer_targets.write(next(ref_in))
+							writer_targets.write(seq)
 							found_t = True
 						if(correlfile != None and gene_id in geneIDs):
 							writer_targets.write(line)
-							writer_targets.write(next(ref_in))
+							writer_targets.write(seq)
 							found_t = True
-						if(trans_id == str(args.lncRNA)):
+						if(not found_l and trans_id == str(args.lncRNA)):
 							writer_lncRNA.write(line)
-							writer_lncRNA.write(next(ref_in))
+							writer_lncRNA.write(seq)
+							writer_lncRNA.close()
 							found_l = True
 							if(geneIDsfile == None):break
-			writer_lncRNA.close()
 		else:
 			found_l = True;
 
@@ -987,7 +1012,7 @@ def check_project_preq(args):
 			logFAIL()
 			logln("The input lncRNA transcript ID does not appear to exist in "+str(args.reference)+", or is incorrectly formatted (ENSTXXXXXXXXXXX).")
 			exit(1)
-		config.set("project", "lncRNA", pipeline.seqdir+args.lncRNA+".fa")
+		config.set("project", "lncRNA", lncRNA_file)
 
 		# creating project folder
 		mkdir_p(workdir)

@@ -50,13 +50,13 @@ python mechrna.py -p my_project -l ENSTXXXXXXXXXXX -c ./data/correlation/correl.
 
 ```
 
-The hypothesis-driven mode parameters can also be specified for screening mode. Screening mode is computationally expensive and should be executed with multiple workers [--num-worker] and ideally on a cluster [--mode sge/pbs]. Slurm support coming soon!
+The hypothesis-driven mode parameters can also be specified for screening mode. Screening mode is computationally expensive and should be executed with multiple workers [--num-worker] and ideally on a cluster [--mode slurm/sge/pbs]. 
 
 Feel free to change **my_project** to any name you want. The TSV file with the prediction results will be generated in **my_project**.
 
 #### Example run with lncRNA 7SL
 
-This is the validation case from Gawronski et. al (DOI: )
+This is the validation case from Gawronski et. al (DOI: 10.1093/bioinformatics/bty208)
 
 To run MechRNA on this lncRNA, type the following when in the mechrna root directory:
 
